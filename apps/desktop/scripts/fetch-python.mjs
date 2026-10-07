@@ -14,11 +14,14 @@ const BASE = `https://github.com/astral-sh/python-build-standalone/releases/down
 
 const TARGETS = {
   'win-x64': { triple: 'x86_64-pc-windows-msvc', platforms: ['win_amd64'] },
-  // Giới hạn tag macOS ≤ 11 để wheel chạy được trên macOS 11 trở lên.
-  'mac-arm64': { triple: 'aarch64-apple-darwin', platforms: ['macosx_11_0_arm64', 'macosx_10_9_universal2'] },
+  // Tag macOS tối đa 12.0: Electron 44 cũng cần macOS 12 trở lên, và scipy chỉ có wheel từ 12.0 (arm64).
+  'mac-arm64': { triple: 'aarch64-apple-darwin', platforms: ['macosx_12_0_arm64', 'macosx_11_0_arm64', 'macosx_10_9_universal2'] },
   'mac-x64': {
     triple: 'x86_64-apple-darwin',
-    platforms: ['macosx_11_0_x86_64', 'macosx_10_15_x86_64', 'macosx_10_13_x86_64', 'macosx_10_9_x86_64', 'macosx_10_9_universal2'],
+    platforms: [
+      'macosx_12_0_x86_64', 'macosx_11_0_x86_64', 'macosx_10_15_x86_64', 'macosx_10_14_x86_64',
+      'macosx_10_13_x86_64', 'macosx_10_9_x86_64', 'macosx_10_9_universal2',
+    ],
   },
 };
 const HOST = {
