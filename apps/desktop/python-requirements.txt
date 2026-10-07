@@ -1,0 +1,11 @@
+# Thư viện Python đóng gói sẵn trong app để Claude xử lý tài liệu trên máy chưa cài gì.
+# Đọc/sửa Word, Excel, PDF
+python-docx==1.2.0
+openpyxl==3.1.5
+xlrd==2.0.2
+pymupdf==1.26.5
+# Phân tích số liệu (hồ sơ khoa học)
+numpy==2.3.4
+pandas==2.3.3
+scipy==1.16.3
+matplotlib==3.10.7

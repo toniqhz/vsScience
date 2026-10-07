@@ -68,6 +68,9 @@ for (const [platform, arch, os] of platforms) {
   run('tar', ['xzf', tgz, '-C', out, '--strip-components=1', `package/${platform === 'win32' ? 'claude.exe' : 'claude'}`]);
 }
 
+console.log('\n▸ Python portable kèm thư viện');
+run('node', [path.join(desktop, 'scripts/fetch-python.mjs'), ...platforms.map(([, arch, os]) => `${os}-${arch}`)]);
+
 console.log('\n▸ Đóng gói bằng electron-builder');
 // Bộ cài NSIS cần chạy trên Windows (trên Linux phải có Wine); ngoài Windows thì tạo bản zip chạy thẳng.
 const winTargets = process.platform === 'win32' ? ['nsis', 'zip'] : ['zip'];

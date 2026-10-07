@@ -80,7 +80,16 @@ pnpm --filter @ide/desktop dist:win   # Windows: trên Linux/WSL ra bản .zip; 
 pnpm --filter @ide/desktop dist:mac   # macOS: chỉ build được trên máy Mac (.dmg + .zip, arm64 và x64)
 ```
 
-Kết quả nằm trong `apps/desktop/release/`. Workflow `.github/workflows/desktop.yml` build cả hai trên GitHub Actions.
+Kết quả nằm trong `apps/desktop/release/`.
+
+App chạy được trên máy chưa cài gì:
+
+- **Python 3.12 portable** (python-build-standalone, bản phát hành ghim trong `apps/desktop/scripts/fetch-python.mjs`,
+  kiểm SHA256) kèm thư viện trong `apps/desktop/python-requirements.txt`: python-docx, openpyxl, xlrd, PyMuPDF,
+  pandas, numpy, scipy, matplotlib. App đưa Python này lên đầu PATH của Claude, bật UTF-8 (tiếng Việt trên Windows)
+  và báo cho Claude biết thư viện có sẵn. Bớt thư viện trong file requirements để app nhẹ hơn (scipy ~100 MB).
+- **Windows không cần Git:** không có Git Bash thì Claude Code dùng công cụ PowerShell có sẵn.
+- **Claude Code CLI** đúng hệ điều hành. Workflow `.github/workflows/desktop.yml` build cả hai trên GitHub Actions.
 
 Kiểm tra bản đóng gói mà không mở cửa sổ (dùng thư mục tạm, không đụng dữ liệu thật):
 

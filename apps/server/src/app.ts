@@ -13,6 +13,7 @@ import type { Config } from './config.js';
 import { MIME_BY_EXT, PathError, fileKind, resolveInWorkspace, toRelPosix, validateNewName } from './paths.js';
 import { emptyDocx, emptyXlsx } from './templates.js';
 import { openExternal } from './openExternal.js';
+import { PlanUsageMonitor, type UsageQueryFn } from './usage.js';
 import { loadProfile } from './profile.js';
 import { buildTree } from './tree.js';
 import { WorkspaceManager, listDirs } from './workspace.js';
@@ -48,6 +49,8 @@ export async function buildApp(
     sessions?: SessionApi;
     /** Mở file bằng ứng dụng ngoài (Word, Excel…); test truyền hàm giả để không bật ứng dụng thật. */
     openExternal?: (absPath: string) => Promise<void>;
+    /** Truy vấn hạn mức gói Claude.ai (test truyền bản giả). */
+    usageQueryFn?: UsageQueryFn;
   } = {},
 ) {
   const app = Fastify({ logger: opts.logger ?? false });
@@ -78,10 +81,15 @@ export async function buildApp(
   void openSnapshots(workspace.root);
   const auth = new ClaudeAuth(config.claudeBin);
   app.addHook('onClose', async () => auth.cancel());
+  const planUsage = new PlanUsageMonitor(config.claudeBin, opts.usageQueryFn);
   const agent = new AgentSession({
     cwd: () => workspace.root,
     claudeBin: config.claudeBin,
-    emit: (event) => broadcast({ type: 'agent', event }),
+    emit: (event) => {
+      broadcast({ type: 'agent', event });
+      // Mỗi lượt dùng thêm hạn mức: lấy số liệu mới cho ô hạn mức.
+      if (event.kind === 'result') void planUsage.get(true).then((usage) => usage && broadcast({ type: 'usage', usage }));
+    },
     replay: (events) => broadcast({ type: 'agent-replay', events }),
     onSessionsChanged: () => broadcast({ type: 'sessions-changed' }),
     // Tự lưu bản trước mỗi lượt để có thể hoàn tác đúng phần Claude đã sửa.
@@ -225,6 +233,9 @@ export async function buildApp(
     await agent.clear();
     return { ok: true };
   });
+  app.get<{ Querystring: { refresh?: string } }>('/api/usage', async (req) => ({
+    usage: await planUsage.get(req.query.refresh === '1'),
+  }));
   app.get('/api/agent/profile', async () => ({ profile: loadProfile(config.profileDir ?? null)?.info ?? null }));
   app.get('/api/agent/context', async () => ({ usage: await agent.contextUsage() }));
 

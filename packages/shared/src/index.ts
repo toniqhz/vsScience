@@ -188,6 +188,23 @@ export interface FileDiff {
 }
 
 /** Thông điệp server đẩy qua WebSocket /api/events. */
+/** Một cửa sổ hạn mức của gói Claude.ai (phiên 5 giờ hoặc tuần). */
+export interface UsageWindow {
+  /** Phần trăm đã dùng, 0–100. */
+  percent: number;
+  /** Thời điểm đặt lại (ISO 8601). */
+  resetsAt: string | null;
+}
+
+/** Hạn mức sử dụng gói Claude.ai, như lệnh /usage của Claude Code. */
+export interface PlanUsage {
+  plan: string | null;
+  session: UsageWindow | null;
+  weekly: UsageWindow | null;
+  /** Thời điểm lấy số liệu (ms). */
+  updatedAt: number;
+}
+
 export type ServerEvent =
   | { type: 'hello'; workspace: WorkspaceInfo }
   | { type: 'fs'; changes: { event: FsEventType; path: string }[] }
@@ -195,4 +212,5 @@ export type ServerEvent =
   | { type: 'agent-replay'; events: AgentEvent[] }
   /** Danh sách phiên hoặc bản lưu vừa đổi — giao diện tải lại khi cần. */
   | { type: 'sessions-changed' }
-  | { type: 'changes-changed' };
+  | { type: 'changes-changed' }
+  | { type: 'usage'; usage: PlanUsage };

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AuthStatus, LoginProgress } from '@ide/shared';
 import { PathError } from './paths.js';
+import { withRuntime } from './runtime.js';
 
 /**
  * Đường dẫn Claude Code CLI đi kèm Claude Agent SDK (gói nhị phân theo hệ điều hành).
@@ -28,7 +29,7 @@ export function resolveClaudeBin(): string {
  * (Claude Code ưu tiên ANTHROPIC_API_KEY hơn gói thuê bao nếu biến này có mặt).
  */
 export function cliEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-  const env = { ...process.env, ...extra };
+  const env = withRuntime({ ...process.env, ...extra });
   delete env.ANTHROPIC_API_KEY;
   delete env.ANTHROPIC_AUTH_TOKEN;
   return env;

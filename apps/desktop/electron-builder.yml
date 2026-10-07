@@ -17,6 +17,8 @@ extraResources:
     to: profile
   - from: build/claude/${os}-${arch}
     to: claude
+  - from: build/python/${os}-${arch}
+    to: python
 win:
   target: nsis
   # Không có chứng thư ký số; bỏ bước sửa exe (cần Wine khi build trên Linux).

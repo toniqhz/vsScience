@@ -56,3 +56,53 @@ describe('claudeScratchRoot', () => {
   });
 });
 
+
+describe('FolderGuard trên Windows (PowerShell)', () => {
+  const WIN_WS = 'C:\\Users\\Tuan Nguyen\\OneDrive\\Desktop\\cham thi';
+  const env = {
+    SystemRoot: 'C:\\WINDOWS',
+    ProgramFiles: 'C:\\Program Files',
+    'ProgramFiles(x86)': 'C:\\Program Files (x86)',
+    USERPROFILE: 'C:\\Users\\Tuan Nguyen',
+    TEMP: 'C:\\Users\\TUANNG~1\\AppData\\Local\\Temp',
+    APPDATA: 'C:\\Users\\Tuan Nguyen\\AppData\\Roaming',
+  };
+  const PY = 'C:\\Users\\Tuan Nguyen\\AppData\\Local\\Programs\\BanLamViec\\resources\\python';
+  const scratch = claudeScratchRoot(WIN_WS, 'win32', env.TEMP);
+  const g = new FolderGuard(() => [WIN_WS, scratch], { platform: 'win32', env, home: env.USERPROFILE, extraAllowed: [PY] });
+  const ps = (command: string) => g.outside('PowerShell', { command }, WIN_WS);
+
+  it('scratchpad của Claude Code trên Windows', () => {
+    expect(scratch).toBe('C:\\Users\\TUANNG~1\\AppData\\Local\\Temp\\claude\\C--Users-Tuan-Nguyen-OneDrive-Desktop-cham-thi');
+    expect(claudeScratchRoot('C:\\' + 'a'.repeat(300), 'win32', 'C:\\T')).toMatch(/^C:\\T\\claude\\C--a{197}-\*$/);
+  });
+
+  it('lệnh trong thư mục làm việc, scratchpad, Python đi kèm: không cần hỏi', () => {
+    expect(ps(`python "${scratch}\\phien-1\\scratchpad\\cham.py" "Bài làm\\An.docx"`)).toEqual([]);
+    expect(ps(`& "${PY}\\python.exe" -c "import docx; print(docx.Document('Đề thi/Đề 1.docx').paragraphs[0].text)"`)).toEqual([]);
+    expect(ps(`Get-ChildItem -Path "${WIN_WS}\\Bài làm" -Filter *.docx | Select-Object Name`)).toEqual([]);
+    expect(ps('Get-ChildItem . -Recurse -Include *.xlsx; $x = 10 / 2; Write-Output "Xong`n"')).toEqual([]);
+    expect(ps('cmd /c dir /s /b *.pdf')).toEqual([]);
+    expect(ps(`Copy-Item "Đề thi\\Đề 1.docx" "$env:TEMP\\claude\\C--Users-Tuan-Nguyen-OneDrive-Desktop-cham-thi\\s\\scratchpad\\"`)).toEqual([]);
+    expect(ps('& "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE" /q')).toEqual([]);
+  });
+
+  it('đụng tới file ngoài thư mục: báo đường dẫn để hỏi lại', () => {
+    expect(ps('Get-Content "$env:USERPROFILE\\Documents\\mat-khau.txt"')).toEqual(['C:\\Users\\Tuan Nguyen\\Documents\\mat-khau.txt']);
+    expect(ps('Remove-Item -Recurse ~\\Desktop\\*')).toEqual(['C:\\Users\\Tuan Nguyen\\Desktop']);
+    expect(ps('Copy-Item "Đề thi\\Đề 1.docx" ..\\khac\\')).toEqual(['C:\\Users\\Tuan Nguyen\\OneDrive\\Desktop\\khac']);
+    expect(ps('type %APPDATA%\\Claude\\config.json')).toEqual(['C:\\Users\\Tuan Nguyen\\AppData\\Roaming\\Claude\\config.json']);
+    expect(ps('Get-ChildItem D:\\Tai lieu')).toEqual(['D:\\Tai']);
+    expect(ps('Get-Content \\\\may-chu\\chia-se\\de.docx')).toEqual(['\\\\may-chu\\chia-se\\de.docx']);
+  });
+
+  it('không phân biệt hoa thường khi so đường dẫn Windows', () => {
+    expect(ps('Get-Content "c:\\users\\tuan nguyen\\onedrive\\desktop\\CHAM THI\\de.docx"')).toEqual([]);
+    expect(g.outside('Write', { file_path: 'C:\\USERS\\Tuan Nguyen\\OneDrive\\Desktop\\cham thi\\moi.docx' }, WIN_WS)).toEqual([]);
+    expect(g.outside('Read', { file_path: 'C:\\Users\\Tuan Nguyen\\.ssh\\id_rsa' }, WIN_WS)).toEqual(['C:\\Users\\Tuan Nguyen\\.ssh\\id_rsa']);
+  });
+
+  it('hiện đường dẫn rút gọn bằng ~', () => {
+    expect(g.display('C:\\Users\\Tuan Nguyen\\Documents\\a.txt')).toBe('~\\Documents\\a.txt');
+  });
+});

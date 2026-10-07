@@ -228,6 +228,7 @@ function ToolItem({ item, running, onOpenFile }: { item: Extract<Item, { type: '
     case 'Glob':
       return <ToolRow icon="codicon-search" title="Tìm file" detail={str(input.pattern)} pending={pending} isError={isError}>{outputBody}</ToolRow>;
     case 'Bash':
+    case 'PowerShell':
       return (
         <ToolRow icon="codicon-terminal" title="Chạy lệnh" detail={str(input.description)} pending={pending} isError={isError}>
           <Pre>{`$ ${str(input.command)}${output ? `\n\n${output}` : ''}`}</Pre>
@@ -284,7 +285,7 @@ function PermissionCard({
       </>
     );
     if (fileChange) body = open ? <DiffView change={fileChange} /> : null;
-  } else if (toolName === 'Bash') {
+  } else if (toolName === 'Bash' || toolName === 'PowerShell') {
     title = <>Claude muốn chạy một lệnh trên máy{input.description ? <>: <strong>{str(input.description)}</strong></> : null}</>;
     body = open ? <Pre>{str(input.command)}</Pre> : null;
   } else if (toolName === 'ExitPlanMode') {

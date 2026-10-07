@@ -20,8 +20,9 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentBlock, AgentEvent, AgentMode, AgentSessionInfo, ContextUsage, FileChange } from '@ide/shared';
 import { cliEnv } from './claude-auth.js';
-import { FolderGuard, claudeScratchRoot, displayOutside } from './folderGuard.js';
+import { FolderGuard, claudeScratchRoot } from './folderGuard.js';
 import type { ClaudeProfile } from './profile.js';
+import { pythonHome, runtimePrompt } from './runtime.js';
 
 /** Phần của Query (Agent SDK) mà phiên dùng tới — tách ra để test bằng phiên giả. */
 export interface AgentQuery extends AsyncIterable<SDKMessage> {
@@ -498,7 +499,9 @@ export class AgentSession {
   #start(settings: AgentSettings, cwd: string) {
     const input = new InputQueue();
     // Phạm vi tự do: thư mục làm việc + thư mục scratchpad mà Claude Code cấp cho mỗi phiên.
-    const guard = new FolderGuard(() => [cwd, claudeScratchRoot(cwd)]);
+    // Python và Claude CLI đi kèm app cũng được dùng tự do.
+    const extraAllowed = [pythonHome(), path.dirname(this.opts.claudeBin)].filter((d): d is string => !!d && path.isAbsolute(d));
+    const guard = new FolderGuard(() => [cwd, claudeScratchRoot(cwd)], { extraAllowed });
     const canUseTool: CanUseTool = (toolName, toolInput, { signal, suggestions }) =>
       new Promise<PermissionResult>((resolve) => {
         const outside = FolderGuard.touchesFiles(toolName) ? guard.outside(toolName, toolInput, cwd) : [];
@@ -522,7 +525,7 @@ export class AgentSession {
           toolName,
           input: displayInput(toolInput, this.#rel),
           fileChange: previewChange(toolName, toolInput, this.#rel),
-          ...(outside.length ? { outside: outside.map(displayOutside) } : {}),
+          ...(outside.length ? { outside: outside.map((p) => guard.display(p)) } : {}),
         });
       });
 
@@ -545,7 +548,7 @@ export class AgentSession {
       systemPrompt: {
         type: 'preset',
         preset: 'claude_code',
-        append: [SYSTEM_APPEND, profile?.systemAppend].filter(Boolean).join('\n\n'),
+        append: [SYSTEM_APPEND, runtimePrompt(), profile?.systemAppend].filter(Boolean).join('\n\n'),
       },
       ...(profile && Object.keys(profile.agents).length ? { agents: profile.agents } : {}),
       // Câu hỏi nhiều lựa chọn cần giao diện riêng — chưa hỗ trợ.

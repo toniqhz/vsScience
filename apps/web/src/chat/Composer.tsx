@@ -94,12 +94,24 @@ export function Composer(props: ComposerProps) {
   // File đang mở đổi thì mặc định lại gửi kèm.
   useEffect(() => setIncludeActive(true), [activePath]);
 
-  // Ô nhập tự giãn theo nội dung (tối đa ~10 dòng).
+  // Ô nhập tự giãn theo nội dung (tối đa ~10 dòng). Đo lại cả khi bề ngang đổi: lúc mới hiện khung
+  // chat có thể rộng 0px, chữ xuống dòng từng ký tự và chiều cao bị chốt ở mức tối đa.
   useLayoutEffect(() => {
     const el = inputRef.current;
     if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+    const fit = () => {
+      el.style.height = 'auto';
+      el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+    };
+    fit();
+    let width = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === width) return; // chỉ đo lại khi bề ngang đổi (tránh vòng lặp do đổi chiều cao)
+      width = el.clientWidth;
+      fit();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [text]);
 
   // Đóng menu model/chế độ khi bấm ra ngoài.

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { AgentEvent, TreeResponse, WorkspaceInfo } from '@ide/shared';
+import type { AgentEvent, PlanUsage, TreeResponse, WorkspaceInfo } from '@ide/shared';
 import { api, connectEvents } from './client';
 
 type FileListener = () => void;
@@ -19,6 +19,9 @@ interface WorkspaceState {
   onFileChange: (path: string, listener: FileListener) => () => void;
   /** Nhận sự kiện của phiên trợ lý (và bản phát lại khi kết nối). Trả về hàm hủy. */
   onAgent: (listener: AgentListener) => () => void;
+  /** Hạn mức gói Claude.ai; null khi chưa có hoặc không áp dụng. */
+  planUsage: PlanUsage | null;
+  refreshUsage: (force?: boolean) => void;
 }
 
 const WorkspaceContext = createContext<WorkspaceState | null>(null);
@@ -30,6 +33,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [connected, setConnected] = useState(false);
   const [sessionsRev, setSessionsRev] = useState(0);
   const [changesRev, setChangesRev] = useState(0);
+  const [planUsage, setPlanUsage] = useState<PlanUsage | null>(null);
+  const refreshUsage = useMemo(
+    () => (force = false) => {
+      api.usage(force).then((u) => u && setPlanUsage(u), () => {});
+    },
+    [],
+  );
+  // Hạn mức đổi chậm: tải khi mở app và mỗi 3 phút (server có bộ nhớ đệm 60 giây).
+  useEffect(() => {
+    refreshUsage();
+    const t = window.setInterval(() => refreshUsage(), 180_000);
+    return () => window.clearInterval(t);
+  }, [refreshUsage]);
   const listeners = useRef(new Map<string, Set<FileListener>>());
   const agentListeners = useRef(new Set<AgentListener>());
   const refreshTimer = useRef<number | undefined>(undefined);
@@ -62,6 +78,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       (event) => {
         if (event.type === 'sessions-changed') {
           setSessionsRev((n) => n + 1);
+          return;
+        }
+        if (event.type === 'usage') {
+          setPlanUsage(event.usage);
           return;
         }
         if (event.type === 'changes-changed') {
@@ -129,8 +149,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           agentListeners.current.delete(listener);
         };
       },
+      planUsage,
+      refreshUsage,
     }),
-    [info, tree, error, connected, sessionsRev, changesRev, loadTree],
+    [info, tree, error, connected, sessionsRev, changesRev, loadTree, planUsage, refreshUsage],
   );
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

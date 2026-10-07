@@ -393,6 +393,7 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   background: var(--bg);
+  container: chat / inline-size;
 }
 
 .chat-scroll {
@@ -502,7 +503,122 @@ textarea:focus {
 
 .composer-wrap {
   flex: none;
+  position: relative;
   padding-bottom: 14px;
+}
+
+/* ---------- Hạn mức gói Claude (góc dưới bên phải, cạnh ô chat) ---------- */
+
+/* Cao đúng bằng ô chat: bám mép trên của khung và mép dưới của ô chat (trừ khoảng đệm 14px). */
+.usage-card {
+  position: absolute;
+  left: calc(100% - 8px);
+  top: 0;
+  bottom: 14px;
+  width: 310px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-elevated, #252526);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.usage-card:hover {
+  border-color: var(--border);
+}
+
+.usage-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.usage-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.usage-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.usage-label {
+  color: var(--text-strong);
+}
+
+.usage-pct {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-bar {
+  flex: 1;
+  min-width: 40px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(55, 148, 255, 0.15);
+  overflow: hidden;
+}
+
+.usage-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.usage-bar span.is-warn {
+  background: #cca700;
+}
+
+.usage-bar span.is-danger {
+  background: var(--danger);
+}
+
+.usage-reset {
+  flex: none;
+  /* Bề rộng cố định để hai thanh dài bằng nhau dù chữ dài ngắn khác nhau. */
+  min-width: 172px;
+  text-align: right;
+  color: var(--text-faint);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Khung chat hẹp, không đủ chỗ bên phải ô chat: xếp hạn mức thành một dải ngang dưới ô chat. */
+@container chat (max-width: 1380px) {
+  .usage-card {
+    position: static;
+    width: 100%;
+    flex-direction: row;
+    gap: 16px;
+    margin-top: 6px;
+    padding: 6px 10px;
+  }
+
+  .usage-row {
+    flex: 1;
+  }
+
+  .usage-label {
+    white-space: nowrap;
+  }
+
+  .usage-reset {
+    min-width: 0;
+  }
 }
 
 /* ---------- Ô chat (theo Claude Code trong VS Code) ---------- */

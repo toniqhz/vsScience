@@ -21,6 +21,9 @@ function configureEnv() {
   process.env.IDE_WEB_DIST ??= path.join(resources, 'web');
   process.env.IDE_CLAUDE_BIN ??= path.join(resources, 'claude', exe);
   process.env.IDE_CLAUDE_PROFILE ??= path.join(resources, 'profile');
+  // Python portable có sẵn thư viện xử lý Word/Excel/PDF (không có khi chạy thử từ repo chưa build).
+  const python = path.join(resources, 'python');
+  if (existsSync(python)) process.env.IDE_PYTHON_HOME ??= python;
   process.env.IDE_DEFAULT_WORKSPACE ??= app.getPath('documents');
   // Cổng ngẫu nhiên: nhiều người dùng / nhiều bản chạy cùng lúc không đụng nhau.
   process.env.IDE_PORT ??= '0';
@@ -56,6 +59,27 @@ async function smokeTest(outFile: string) {
       headers: { authorization: `Bearer ${config.token}` },
     }).then((r) => r.json());
     result.profile = profile;
+    // Python đi kèm, chạy bằng đúng môi trường mà Claude dùng (PATH, UTF-8…).
+    if (process.env.IDE_PYTHON_HOME) {
+      const { withRuntime } = await import('../../server/src/runtime.js');
+      const env = withRuntime({ ...process.env });
+      const check = [
+        'import sys, os, tempfile, docx, openpyxl, xlrd, fitz, pandas, numpy, scipy, matplotlib',
+        "p = os.path.join(tempfile.gettempdir(), 'kiem-tra-de.docx')",
+        "d = docx.Document(); d.add_paragraph('Đề kiểm tra — Câu 1'); d.save(p)",
+        "print(docx.Document(p).paragraphs[0].text, '|', sys.version.split()[0], '|', sys.executable)",
+        'os.remove(p)',
+      ].join('\n');
+      const script = path.join(tmpdir(), `banlamviec-check-${process.pid}.py`);
+      writeFileSync(script, check);
+      // Gọi "python" qua shell như Claude: kiểm tra PATH trỏ đúng Python đi kèm.
+      const [shellExe, shellArgs] =
+        process.platform === 'win32'
+          ? ['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `python '${script}'`]]
+          : ['/bin/sh', ['-c', `python '${script}'`]];
+      const { stdout } = await promisify(execFile)(shellExe, shellArgs, { env, timeout: 120_000 });
+      result.python = stdout.trim();
+    }
     await server.close();
     result.ok = true;
   } catch (err) {

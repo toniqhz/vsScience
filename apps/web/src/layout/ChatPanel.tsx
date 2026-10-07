@@ -8,6 +8,7 @@ import { Composer, type ComposerMenu } from '../chat/Composer';
 import { LoginDialog, planLabel } from '../chat/LoginDialog';
 import { DEFAULT_MODEL, findModel, type Effort, type PermissionMode } from '../chat/models';
 import { Transcript, agentLabel } from '../chat/Transcript';
+import { UsageCard } from '../chat/UsageCard';
 
 const SUGGESTIONS = [
   { icon: 'codicon-checklist', title: 'Soạn câu trắc nghiệm', prompt: '/soan-trac-nghiem' },
@@ -36,7 +37,7 @@ function loadPrefs(): Prefs {
  * hội thoại dựng từ luồng sự kiện qua WebSocket, nên tải lại trang vẫn giữ nguyên.
  */
 export function ChatPanel({ activePath, onOpenFile }: { activePath: string | null; onOpenFile: (path: string) => void }) {
-  const { onAgent } = useWorkspace();
+  const { onAgent, planUsage, refreshUsage } = useWorkspace();
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
@@ -225,6 +226,7 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
           }
           onSubmit={send}
         />
+        <UsageCard usage={planUsage} onRefresh={() => refreshUsage(true)} />
       </div>
       {loginOpen && <LoginDialog status={auth} onClose={() => setLoginOpen(false)} onConnected={onConnected} />}
     </div>
