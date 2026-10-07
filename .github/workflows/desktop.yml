@@ -1,5 +1,6 @@
-# Build app desktop: bộ cài Windows (.exe NSIS + .zip) và macOS (.dmg + .zip, Apple Silicon và Intel).
-# Chạy tay ở tab Actions (workflow_dispatch) hoặc khi đẩy tag v*.
+# Build app desktop: bộ cài Windows (.exe) và macOS (.dmg, Apple Silicon và Intel).
+# Chạy tay ở tab Actions (workflow_dispatch) hoặc khi đẩy tag v*; đẩy tag thì tạo luôn GitHub Release
+# công khai kèm các bộ cài (link tải cố định: releases/latest/download/VsScience-<os>-<arch>.<đuôi>).
 name: Desktop
 
 on:
@@ -34,3 +35,40 @@ jobs:
             apps/desktop/release/*.exe
             apps/desktop/release/*.dmg
           if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Tạo GitHub Release kèm bộ cài
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist
+          cat > notes.md <<'NOTES'
+          ## Tải về
+
+          | Máy | File |
+          |---|---|
+          | Windows 10/11 (64-bit) | `VsScience-win-x64.exe` |
+          | Mac chip Apple (M1 trở lên), macOS 12+ | `VsScience-mac-arm64.dmg` |
+          | Mac chip Intel, macOS 12+ | `VsScience-mac-x64.dmg` |
+
+          Bản thử nghiệm chưa ký số:
+          - **Windows**: SmartScreen cảnh báo, chọn **More info** rồi **Run anyway**.
+          - **macOS**: lần đầu mở, nhấp chuột phải vào app và chọn **Open**.
+
+          Cần tài khoản Claude (Pro hoặc Max) để trò chuyện với Claude.
+          NOTES
+          sed -i 's/^          //' notes.md
+          gh release create "$GITHUB_REF_NAME" dist/*.exe dist/*.dmg \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "VsScience ${GITHUB_REF_NAME#v}" \
+            --notes-file notes.md

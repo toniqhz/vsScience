@@ -1,7 +1,8 @@
 appId: io.github.toniqhz.vsscience
 productName: VsScience
 executableName: VsScience
-artifactName: VsScience-${version}-${os}-${arch}.${ext}
+# Tên file không kèm phiên bản: link releases/latest/download/<tên> luôn trỏ tới bản mới nhất.
+artifactName: VsScience-${os}-${arch}.${ext}
 directories:
   output: release
   buildResources: build/icons
