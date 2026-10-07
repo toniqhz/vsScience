@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useWorkspace } from '../api/workspace';
+import { OpenExternalButton } from './OpenExternalButton';
 
 type Status = { state: 'loading' } | { state: 'ready' } | { state: 'error'; message: string };
 
@@ -123,7 +124,9 @@ export function WordViewer({ path }: { path: string }) {
             <span className="codicon codicon-screen-full" />
           </button>
         </span>
-        <span className="toolbar-group toolbar-search">Chỉ xem — nhờ Claude để sửa</span>
+        <span className="toolbar-group toolbar-search">
+          <OpenExternalButton path={path} app="Word" />
+        </span>
       </div>
       <div className="pdf-scroll-host">
         <div ref={scrollRef} className="pdf-container word-container">

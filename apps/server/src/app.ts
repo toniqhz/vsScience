@@ -12,6 +12,7 @@ import { Snapshots } from './snapshots.js';
 import type { Config } from './config.js';
 import { MIME_BY_EXT, PathError, fileKind, resolveInWorkspace, toRelPosix, validateNewName } from './paths.js';
 import { emptyDocx, emptyXlsx } from './templates.js';
+import { openExternal } from './openExternal.js';
 import { loadProfile } from './profile.js';
 import { buildTree } from './tree.js';
 import { WorkspaceManager, listDirs } from './workspace.js';
@@ -40,7 +41,14 @@ export type AppConfig = Pick<
 
 export async function buildApp(
   config: AppConfig,
-  opts: { logger?: boolean; watch?: boolean; queryFn?: QueryFn; sessions?: SessionApi } = {},
+  opts: {
+    logger?: boolean;
+    watch?: boolean;
+    queryFn?: QueryFn;
+    sessions?: SessionApi;
+    /** Mở file bằng ứng dụng ngoài (Word, Excel…); test truyền hàm giả để không bật ứng dụng thật. */
+    openExternal?: (absPath: string) => Promise<void>;
+  } = {},
 ) {
   const app = Fastify({ logger: opts.logger ?? false });
   const expectedToken = Buffer.from(config.token);
@@ -270,6 +278,34 @@ export async function buildApp(
       return { saved };
     },
   );
+  const snapshotId = { type: 'string', pattern: '^[0-9a-f]{4,40}$' } as const;
+  app.get<{ Querystring: { id: string } }>(
+    '/api/changes/snapshots/detail',
+    { schema: { querystring: { type: 'object', required: ['id'], properties: { id: snapshotId } } } },
+    async (req) => snapshots.snapshotDetail(req.query.id),
+  );
+  app.get<{ Querystring: { id: string; path: string } }>(
+    '/api/changes/snapshots/diff',
+    { schema: { querystring: { type: 'object', required: ['id', 'path'], properties: { id: snapshotId, path: { type: 'string', minLength: 1 } } } } },
+    async (req) => snapshots.snapshotDiff(req.query.id, req.query.path),
+  );
+  app.post<{ Body: { id: string; path?: string } }>(
+    '/api/changes/snapshots/restore',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: snapshotId, path: { type: 'string', minLength: 1, maxLength: 4096 } },
+        },
+      },
+    },
+    async (req) => {
+      const result = await snapshots.restoreSnapshot(req.body.id, req.body.path);
+      broadcast({ type: 'changes-changed' });
+      return result;
+    },
+  );
   app.post<{ Body: { path: string } }>('/api/changes/restore', { schema: pathBody }, async (req) => {
     await snapshots.restore(req.body.path);
     broadcast({ type: 'changes-changed' });
@@ -295,6 +331,18 @@ export async function buildApp(
       .header('content-disposition', `inline; filename*=UTF-8''${encodeURIComponent(path.basename(abs))}`)
       .send(createReadStream(abs));
   });
+
+  /** Mở file bằng ứng dụng mặc định trên máy (Word, Excel) để người dùng tự sửa. */
+  app.post<{ Body: { path: string } }>(
+    '/api/file/open-external',
+    { schema: { body: { type: 'object', required: ['path'], properties: { path: { type: 'string', minLength: 1, maxLength: 4096 } } } } },
+    async (req) => {
+      const abs = await resolveInWorkspace(workspace.root, req.body.path);
+      if (!(await stat(abs)).isFile() || !fileKind(abs)) throw new PathError('Không hỗ trợ loại file này', 415);
+      await (opts.openExternal ?? openExternal)(abs);
+      return { ok: true };
+    },
+  );
 
   const createBody = {
     body: {

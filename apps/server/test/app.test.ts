@@ -46,6 +46,7 @@ if (sub === 'status') {
 `;
 
 const auth = { authorization: `Bearer ${TOKEN}`, host: '127.0.0.1:4317' };
+const opened: string[] = [];
 
 beforeAll(async () => {
   base = realpathSync(mkdtempSync(path.join(tmpdir(), 'ide-test-')));
@@ -75,7 +76,7 @@ beforeAll(async () => {
       snapshotsDir: path.join(base, 'snapshots'),
       usePolling: false,
     },
-    { watch: false },
+    { watch: false, openExternal: async (abs) => void opened.push(abs) },
   ));
 });
 
@@ -145,6 +146,26 @@ describe('đọc file', () => {
   ])('chặn %s', async (p, status) => {
     const res = await app.inject({ url: `/api/file?path=${encodeURIComponent(p)}`, headers: auth });
     expect(res.statusCode).toBe(status);
+  });
+});
+
+describe('mở bằng ứng dụng ngoài', () => {
+  it('mở file Word/Excel trong thư mục làm việc bằng ứng dụng mặc định', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/file/open-external', headers: auth, payload: { path: 'de-thi.docx' } });
+    expect(res.statusCode).toBe(200);
+    expect(opened).toEqual([path.join(root, 'de-thi.docx')]);
+  });
+
+  it.each([
+    ['../bi-mat.pdf', 400],
+    ['link.pdf', 404],
+    ['ghi-chu.txt', 415],
+    ['Chương 2', 415],
+  ])('không mở %s', async (p, status) => {
+    opened.length = 0;
+    const res = await app.inject({ method: 'POST', url: '/api/file/open-external', headers: auth, payload: { path: p } });
+    expect(res.statusCode).toBe(status);
+    expect(opened).toEqual([]);
   });
 });
 

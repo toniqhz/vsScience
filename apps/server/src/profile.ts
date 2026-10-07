@@ -23,7 +23,7 @@ export interface ClaudeProfile {
 const APP_ADJUSTMENTS = `# Điều chỉnh khi chạy trong app Bàn làm việc (ưu tiên hơn các mục ở trên)
 
 - Không dùng git trong thư mục làm việc: không chạy git init, git add hay git commit. App tự lưu một bản trước mỗi lượt của bạn. Thay cho mục "Git": sau mỗi kết quả quan trọng, nhắc người dùng bấm "Lưu bản" ở mục Thay đổi (thanh bên trái) kèm một dòng mô tả gợi ý.
-- Cấu trúc thư mục (data/raw, data/processed, analysis, figures, reports) chỉ áp dụng khi thư mục làm việc đã có cấu trúc đó, hoặc người dùng muốn lập một project phân tích dữ liệu. Với thư mục sách, bài báo, đề thi thông thường: không tự tạo các thư mục này; script phụ để xử lý file đặt ở thư mục tạm của hệ thống.
+- Cấu trúc thư mục (data/raw, data/processed, analysis, figures, reports) chỉ áp dụng khi thư mục làm việc đã có cấu trúc đó, hoặc người dùng muốn lập một project phân tích dữ liệu. Với thư mục sách, bài báo, đề thi thông thường: không tự tạo các thư mục này; script phụ để xử lý file đặt ở scratchpad.
 - Mục "Bối cảnh project" ở trên là mẫu để trống. Nếu thư mục làm việc có CLAUDE.md riêng thì dùng bối cảnh trong đó; nếu không, hỏi người dùng khi bối cảnh ảnh hưởng tới kết luận.
 - Với việc đơn giản như tóm tắt, soạn câu hỏi, sửa đề thì không cần nêu giả thuyết hay gọi phản biện. Quy trình lập luận khoa học và subagent phản biện áp dụng cho phân tích có số liệu, kiểm định, mô hình hay kết luận khoa học.`;
 

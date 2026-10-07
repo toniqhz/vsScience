@@ -20,6 +20,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentBlock, AgentEvent, AgentMode, AgentSessionInfo, ContextUsage, FileChange } from '@ide/shared';
 import { cliEnv } from './claude-auth.js';
+import { FolderGuard, claudeScratchRoot, displayOutside } from './folderGuard.js';
 import type { ClaudeProfile } from './profile.js';
 
 /** Phần của Query (Agent SDK) mà phiên dùng tới — tách ra để test bằng phiên giả. */
@@ -79,7 +80,8 @@ const SYSTEM_APPEND = `Người dùng là người đọc sách, đọc báo kho
 - Luôn trả lời bằng tiếng Việt, ngắn gọn, dễ hiểu.
 - Không đưa mã nguồn hay câu lệnh vào câu trả lời trừ khi người dùng hỏi. Khi cần chạy lệnh hay script để xử lý file, cứ làm rồi chỉ báo kết quả.
 - Khi trích dẫn tài liệu PDF, ghi rõ số trang.
-- Thư mục làm việc chứa tài liệu PDF, Word, Excel của người dùng. Không để file tạm hay file rác trong đó; dùng thư mục tạm của hệ thống.`;
+- Thư mục làm việc chứa tài liệu PDF, Word, Excel của người dùng. Không để file tạm hay file rác trong đó; script và file tạm đặt trong thư mục scratchpad của bạn.
+- Chỉ đọc, sửa, chạy lệnh với file trong thư mục làm việc và scratchpad. Nếu thật sự cần file ở ngoài, nói rõ với người dùng cần file nào và vì sao; người dùng sẽ được hỏi cho phép.`;
 
 const OUTPUT_LIMIT = 4000;
 /** Báo cáo của trợ lý phụ (ví dụ phản biện) được hiện dạng văn bản nên giữ dài hơn. */
@@ -495,8 +497,17 @@ export class AgentSession {
 
   #start(settings: AgentSettings, cwd: string) {
     const input = new InputQueue();
+    // Phạm vi tự do: thư mục làm việc + thư mục scratchpad mà Claude Code cấp cho mỗi phiên.
+    const guard = new FolderGuard(() => [cwd, claudeScratchRoot(cwd)]);
     const canUseTool: CanUseTool = (toolName, toolInput, { signal, suggestions }) =>
       new Promise<PermissionResult>((resolve) => {
+        const outside = FolderGuard.touchesFiles(toolName) ? guard.outside(toolName, toolInput, cwd) : [];
+        // Chế độ "Tự động": tự cho chạy lệnh và sửa file, miễn là chỉ trong thư mục làm việc (và thư mục nháp).
+        // Kế hoạch (ExitPlanMode) luôn cần người dùng duyệt.
+        if (this.#applied?.mode === 'auto' && outside.length === 0 && toolName !== 'ExitPlanMode') {
+          resolve({ behavior: 'allow', updatedInput: toolInput });
+          return;
+        }
         const id = randomUUID();
         this.#pending.set(id, { resolve, input: toolInput, suggestions });
         signal.addEventListener('abort', () => {
@@ -511,6 +522,7 @@ export class AgentSession {
           toolName,
           input: displayInput(toolInput, this.#rel),
           fileChange: previewChange(toolName, toolInput, this.#rel),
+          ...(outside.length ? { outside: outside.map(displayOutside) } : {}),
         });
       });
 
@@ -533,7 +545,7 @@ export class AgentSession {
       systemPrompt: {
         type: 'preset',
         preset: 'claude_code',
-        append: profile?.systemAppend ? `${SYSTEM_APPEND}\n\n${profile.systemAppend}` : SYSTEM_APPEND,
+        append: [SYSTEM_APPEND, profile?.systemAppend].filter(Boolean).join('\n\n'),
       },
       ...(profile && Object.keys(profile.agents).length ? { agents: profile.agents } : {}),
       // Câu hỏi nhiều lựa chọn cần giao diện riêng — chưa hỗ trợ.

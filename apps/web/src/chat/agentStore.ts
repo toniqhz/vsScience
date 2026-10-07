@@ -12,7 +12,16 @@ export type Item =
       input: Record<string, unknown>;
       result?: { isError: boolean; output: string; fileChange?: FileChange };
     }
-  | { type: 'permission'; key: string; id: string; toolName: string; input: Record<string, unknown>; fileChange?: FileChange; allowed?: boolean }
+  | {
+      type: 'permission';
+      key: string;
+      id: string;
+      toolName: string;
+      input: Record<string, unknown>;
+      fileChange?: FileChange;
+      outside?: string[];
+      allowed?: boolean;
+    }
   | { type: 'result'; key: string; isError: boolean; durationMs: number; message?: string; interrupted?: boolean; changes: FileChange[] }
   | { type: 'error'; key: string; message: string }
   /** Mục chỉ có ở trình duyệt (thông báo của lệnh /help, /context…). */
@@ -108,7 +117,7 @@ function apply(state: AgentState, e: AgentEvent): AgentState {
         seq,
         items: [
           ...state.items,
-          { type: 'permission', key: `p:${e.id}`, id: e.id, toolName: e.toolName, input: e.input, fileChange: e.fileChange },
+          { type: 'permission', key: `p:${e.id}`, id: e.id, toolName: e.toolName, input: e.input, fileChange: e.fileChange, outside: e.outside },
         ],
       };
     case 'permission-resolved':

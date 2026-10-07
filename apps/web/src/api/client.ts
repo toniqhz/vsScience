@@ -8,7 +8,9 @@ import type {
   DirListing,
   FileDiff,
   LoginProgress,
+  RestoreResult,
   ServerEvent,
+  SnapshotDetail,
   TreeResponse,
   WorkspaceInfo,
 } from '@ide/shared';
@@ -116,7 +118,14 @@ export const api = {
     (await request(`/api/changes/diff?path=${encodeURIComponent(path)}`)).json() as Promise<FileDiff>,
   saveSnapshot: async (message: string) =>
     ((await (await request('/api/changes/snapshot', { message })).json()) as { saved: boolean }).saved,
+  openExternal: async (path: string) => void (await request('/api/file/open-external', { path })),
   restoreFile: async (path: string) => void (await request('/api/changes/restore', { path })),
+  snapshotDetail: async (id: string) =>
+    (await request(`/api/changes/snapshots/detail?id=${id}`)).json() as Promise<SnapshotDetail>,
+  snapshotDiff: async (id: string, path: string) =>
+    (await request(`/api/changes/snapshots/diff?id=${id}&path=${encodeURIComponent(path)}`)).json() as Promise<FileDiff>,
+  restoreSnapshot: async (id: string, path?: string) =>
+    (await request('/api/changes/snapshots/restore', path ? { id, path } : { id })).json() as Promise<RestoreResult>,
 };
 
 /**

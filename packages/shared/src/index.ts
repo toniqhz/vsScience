@@ -109,7 +109,15 @@ export type AgentEvent =
   /** Khối đã hoàn chỉnh, thay cho phần chữ stream dở cùng vị trí. */
   | { kind: 'block'; messageId: string; index: number; block: AgentBlock }
   | { kind: 'tool-result'; toolUseId: string; isError: boolean; output: string; fileChange?: FileChange }
-  | { kind: 'permission'; id: string; toolName: string; input: Record<string, unknown>; fileChange?: FileChange }
+  | {
+      kind: 'permission';
+      id: string;
+      toolName: string;
+      input: Record<string, unknown>;
+      fileChange?: FileChange;
+      /** Đường dẫn nằm ngoài thư mục làm việc mà thao tác này đụng tới (lý do phải hỏi). */
+      outside?: string[];
+    }
   | { kind: 'permission-resolved'; id: string; allowed: boolean }
   /** Kết thúc một lượt. `interrupted`: người dùng bấm dừng. */
   | { kind: 'result'; isError: boolean; durationMs: number; message?: string; interrupted?: boolean }
@@ -148,6 +156,20 @@ export interface Snapshot {
   id: string;
   message: string;
   time: number;
+}
+
+/** Một bản lưu và các file thay đổi trong bản đó so với bản ngay trước. */
+export interface SnapshotDetail {
+  snapshot: Snapshot;
+  files: ChangedFile[];
+}
+
+/** Kết quả khôi phục về một bản lưu. */
+export interface RestoreResult {
+  restored: number;
+  removed: number;
+  /** Tên bản lưu đang giữ trạng thái ngay trước khi khôi phục (để quay lại). */
+  backup: string;
 }
 
 export interface ChangesResponse {

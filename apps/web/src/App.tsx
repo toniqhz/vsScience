@@ -12,7 +12,7 @@ import { baseName } from './fileTypes';
 import { ChangesView } from './sidebar/ChangesView';
 import { SearchView } from './sidebar/SearchView';
 import { SessionsView } from './sidebar/SessionsView';
-import { WorkbenchContext } from './workbenchContext';
+import { WorkbenchContext, type SnapshotRef } from './workbenchContext';
 
 function findNode(node: TreeNode | undefined, id: string): TreeNode | undefined {
   if (!node) return undefined;
@@ -179,18 +179,19 @@ function Workbench() {
   );
 
   /** Mở tab so sánh file với bản lưu gần nhất. */
-  const openDiff = useCallback((path: string) => {
+  const openDiff = useCallback((path: string, snapshot?: SnapshotRef) => {
     const api = dockRef.current;
     if (!api) return;
     setFilesOpen(true);
-    const id = `diff:${path}`;
+    const id = snapshot ? `diff:${snapshot.id}:${path}` : `diff:${path}`;
     const existing = api.getPanel(id);
     if (existing) {
       existing.api.setActive();
       return;
     }
-    const params: DiffPanelParams = { path };
-    api.addPanel({ id, component: 'diff', title: `${baseName(path)} (thay đổi)`, params });
+    const params: DiffPanelParams = { path, snapshot };
+    const title = snapshot ? `${baseName(path)} (${snapshot.message.length > 24 ? `${snapshot.message.slice(0, 24)}…` : snapshot.message})` : `${baseName(path)} (thay đổi)`;
+    api.addPanel({ id, component: 'diff', title, params });
   }, []);
 
   const actions = useMemo(() => ({ openPath, openDiff }), [openPath, openDiff]);

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { CellObject, WorkBook, WorkSheet } from 'xlsx';
 import { api } from '../api/client';
 import { useWorkspace } from '../api/workspace';
+import { OpenExternalButton } from './OpenExternalButton';
 
 type Status = { state: 'loading' } | { state: 'ready' } | { state: 'error'; message: string };
 
@@ -113,7 +114,9 @@ export function ExcelViewer({ path }: { path: string }) {
         <span className="formula-content" title={selContent}>
           {selContent}
         </span>
-        <span className="toolbar-search">Chỉ xem — nhờ Claude để sửa</span>
+        <span className="toolbar-search">
+          <OpenExternalButton path={path} app="Excel" />
+        </span>
       </div>
       <div className="sheet-scroll">
         {grid && X && ws && grid.rows > 0 && (

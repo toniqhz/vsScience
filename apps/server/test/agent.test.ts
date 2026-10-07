@@ -132,6 +132,42 @@ describe('AgentSession', () => {
     expect(session.events().some((e) => e.kind === 'delta')).toBe(false);
   });
 
+  it('chế độ Tự động: tự cho chạy lệnh trong thư mục làm việc, ra ngoài thì hỏi kèm lý do', async () => {
+    const decisions: unknown[] = [];
+    const ask = (options: Options, command: string) =>
+      options.canUseTool!('Bash', { command, description: 'Đọc file' }, { signal: new AbortController().signal, suggestions: [] } as never);
+    const { session, events } = setup(async function* (_user, options) {
+      decisions.push(await ask(options, `python3 -c "print(open('${CWD}/Đề.docx','rb').read()[:2])"`));
+      decisions.push(await ask(options, 'cat /home/ai-do/bi-mat.txt'));
+      yield m({ type: 'result', subtype: 'success', is_error: false, duration_ms: 1 });
+    });
+    await session.send('Đọc đề', [], { ...SETTINGS, mode: 'auto' });
+    await until(() => events.some((e) => e.kind === 'permission'));
+    // Lệnh đầu chạy luôn, không hỏi; chỉ lệnh thứ hai (ngoài thư mục) hiện thẻ xin quyền.
+    expect(decisions[0]).toMatchObject({ behavior: 'allow' });
+    const perms = events.filter((e) => e.kind === 'permission');
+    expect(perms).toHaveLength(1);
+    const perm = perms[0]!;
+    if (perm.kind !== 'permission') throw new Error('thiếu yêu cầu xin quyền');
+    expect(perm.outside).toEqual(['/home/ai-do/bi-mat.txt']);
+    session.respondPermission(perm.id, false);
+    await until(() => decisions.length === 2);
+    expect(decisions[1]).toMatchObject({ behavior: 'deny' });
+    await session.close();
+  });
+
+  it('chế độ Hỏi trước: lệnh trong thư mục vẫn hỏi như cũ', async () => {
+    const { session, events } = setup(async function* (_user, options) {
+      await options.canUseTool!('Bash', { command: 'ls' }, { signal: new AbortController().signal, suggestions: [] } as never);
+      yield m({ type: 'result', subtype: 'success', is_error: false, duration_ms: 1 });
+    });
+    await session.send('Liệt kê', [], SETTINGS);
+    await until(() => events.some((e) => e.kind === 'permission'));
+    const perm = events.find((e) => e.kind === 'permission');
+    expect(perm?.kind === 'permission' && perm.outside).toBeUndefined();
+    await session.close();
+  });
+
   it('chuyển yêu cầu xin quyền lên giao diện, kèm bản xem trước thay đổi', async () => {
     let decision: unknown;
     const { session, events } = setup(async function* (_user, options) {

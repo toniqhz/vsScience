@@ -80,7 +80,7 @@ export const MODES: { id: PermissionMode; label: string; short: string; icon: st
     label: 'Tự động sửa',
     short: 'Tự động',
     icon: 'codicon-zap',
-    description: 'Claude tự sửa file; mọi thay đổi đều hoàn tác được.',
+    description: 'Claude tự chạy lệnh và sửa file trong thư mục đang mở; đụng tới file bên ngoài thì hỏi bạn.',
   },
   {
     id: 'plan',

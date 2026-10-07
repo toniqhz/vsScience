@@ -1193,6 +1193,25 @@ kbd {
   padding: 72pt;
 }
 
+.open-external {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.open-external-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.open-external-note.is-error {
+  color: var(--danger);
+}
+
 /* ---------- Trình xem Excel ---------- */
 
 .excel-viewer {
@@ -2139,6 +2158,30 @@ kbd {
   overflow: auto;
 }
 
+.permission-outside {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 4px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--warning, #cca700);
+  background: rgba(204, 167, 0, 0.08);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.permission-outside .codicon {
+  color: var(--warning, #cca700);
+  margin-top: 2px;
+}
+
+.permission-outside ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  word-break: break-all;
+}
+
 .permission-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2398,13 +2441,15 @@ kbd {
 }
 
 .snapshot-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 22px;
-  padding: 0 8px 0 20px;
-  color: var(--text);
-  cursor: default;
+  padding-left: 4px;
+}
+
+.snapshot-chevron {
+  color: var(--text-muted);
+}
+
+.snapshot-files .side-row {
+  padding-left: 40px;
 }
 
 .snapshot-row .codicon {
@@ -2489,6 +2534,14 @@ kbd {
 .diff-panel-body .diff-view {
   max-height: none;
   border-top: none;
+}
+
+.diff-snapshot {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .diff-note {

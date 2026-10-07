@@ -39,6 +39,15 @@ App chỉ dành cho dùng cá nhân trên máy mình: Anthropic không cho sản
 | `IDE_CLAUDE_BIN` | Dùng Claude Code CLI khác thay cho bản đi kèm Agent SDK |
 | `IDE_CLAUDE_PROFILE` | Thư mục hồ sơ Claude khác (mặc định `claude-code-khoa-hoc/claude-code-khoa-hoc/`); để rỗng để tắt |
 
+## Quyền của Claude
+
+- **Hỏi trước:** Claude hỏi trước mỗi lần sửa file và mỗi lệnh.
+- **Tự động:** Claude tự chạy lệnh và sửa file, miễn là chỉ trong thư mục đang mở (cộng thư mục scratchpad
+  Claude Code cấp cho mỗi phiên). Thao tác đụng tới file bên ngoài thì hỏi lại, thẻ xin quyền ghi rõ các đường dẫn đó.
+  Kiểm tra theo nội dung câu lệnh và script Claude chạy (`apps/server/src/folderGuard.ts`), không phải sandbox
+  của hệ điều hành: đường dẫn ghép lúc chạy (qua biến môi trường lạ…) có thể lọt.
+- **Lập kế hoạch:** Claude chỉ đọc và đề xuất, kế hoạch luôn cần bạn duyệt.
+
 ## Hồ sơ Claude (khoa học)
 
 Mỗi phiên Claude tự nạp hồ sơ trong `claude-code-khoa-hoc/claude-code-khoa-hoc/`:

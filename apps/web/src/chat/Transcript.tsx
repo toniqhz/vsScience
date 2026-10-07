@@ -271,7 +271,7 @@ function PermissionCard({
   onAnswer: (id: string, allow: boolean, always: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const { toolName, input, fileChange, allowed } = item;
+  const { toolName, input, fileChange, allowed, outside } = item;
   const path = fileChange?.path ?? str(input.file_path);
   const isFile = toolName === 'Edit' || toolName === 'Write' || toolName === 'MultiEdit' || toolName === 'NotebookEdit';
 
@@ -318,6 +318,20 @@ function PermissionCard({
         <button className="link-btn permission-toggle" onClick={() => setOpen((o) => !o)}>
           {open ? 'Ẩn chi tiết' : isFile ? 'Xem thay đổi' : 'Xem chi tiết'}
         </button>
+      )}
+      {outside && outside.length > 0 && (
+        <div className="permission-outside">
+          <span className="codicon codicon-warning" />
+          <div>
+            Cần bạn cho phép vì {outside.length > 1 ? 'các file này nằm' : 'file này nằm'} ngoài thư mục đang mở:
+            <ul>
+              {outside.slice(0, 5).map((p) => (
+                <li key={p}>{nfc(p)}</li>
+              ))}
+              {outside.length > 5 && <li>… và {outside.length - 5} đường dẫn khác</li>}
+            </ul>
+          </div>
+        </div>
       )}
       {body}
       <div className="permission-actions">

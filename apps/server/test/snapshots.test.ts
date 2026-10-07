@@ -105,12 +105,76 @@ describe('bản lưu', () => {
     expect(await snaps.diff('Đề thi/de.docx')).toMatchObject({ status: null, change: null });
   });
 
+  it('nhận ra file sửa ngay sau khi lưu bản dù kích thước không đổi (racy git)', async () => {
+    const f = path.join(root, 'Đề thi', 'de.docx');
+    writeFileSync(f, docx(['Đề kiểm tra', 'Câu 1: X', 'Câu 2 cũ', 'Câu 3: C']));
+    await snaps.snapshot('Lưu tạm');
+    writeFileSync(f, docx(['Đề kiểm tra', 'Câu 1: Y', 'Câu 2 cũ', 'Câu 3: C'])); // cùng kích thước, cùng giây
+    expect((await snaps.status()).files).toEqual([{ path: 'Đề thi/de.docx', status: 'modified' }]);
+    await snaps.restore('Đề thi/de.docx');
+    writeFileSync(f, original);
+    await snaps.snapshot('Trả lại đề gốc');
+    expect((await snaps.status()).files).toEqual([]);
+  });
+
   it('lưu bản: có thay đổi thì tạo bản mới, không có thì bỏ qua', async () => {
     writeFileSync(path.join(root, 'moi.docx'), docx(['Mới']));
     expect(await snaps.snapshot('Thêm đề mới')).toBe(true);
     expect(await snaps.snapshot('Không đổi')).toBe(false);
     const s = await snaps.status();
     expect(s.files).toEqual([]);
-    expect(s.snapshots.map((x) => x.message)).toEqual(['Thêm đề mới', 'Bản đầu tiên']);
+    expect(s.snapshots.map((x) => x.message)).toEqual(['Thêm đề mới', 'Trả lại đề gốc', 'Lưu tạm', 'Bản đầu tiên']);
+  });
+
+  it('xem một bản lưu: danh sách file đổi so với bản trước và diff từng file', async () => {
+    writeFileSync(path.join(root, 'Đề thi', 'de.docx'), docx(['Đề kiểm tra', 'Câu 1: B', 'Câu 2 cũ', 'Câu 3: C']));
+    unlinkSync(path.join(root, 'moi.docx'));
+    writeFileSync(path.join(root, 'diem.xlsx'), xlsx([{ ref: 'A1', text: 'An' }]));
+    await snaps.snapshot('Sửa câu 1, bỏ đề mới');
+    const all = (await snaps.status()).snapshots;
+    const [latest, prev] = all;
+    const first = all.at(-1);
+    const d = await snaps.snapshotDetail(latest!.id);
+    expect(d.snapshot.message).toBe('Sửa câu 1, bỏ đề mới');
+    expect(d.files).toEqual([
+      { path: 'diem.xlsx', status: 'added' },
+      { path: 'Đề thi/de.docx', status: 'modified' },
+      { path: 'moi.docx', status: 'deleted' },
+    ]);
+    const diff = await snaps.snapshotDiff(latest!.id, 'Đề thi/de.docx');
+    expect(diff).toMatchObject({ status: 'modified', change: { additions: 1, deletions: 1 } });
+    expect(diff.change!.hunks.flatMap((h) => h.lines)).toEqual(expect.arrayContaining(['-Câu 1: A', '+Câu 1: B']));
+    expect((await snaps.snapshotDetail(prev!.id)).files).toEqual([{ path: 'moi.docx', status: 'added' }]);
+    // Bản đầu tiên: mọi file đều là "mới".
+    expect((await snaps.snapshotDetail(first!.id)).files.map((f) => f.path)).toEqual(['sach.pdf', 'Đề thi/de.docx']);
+    await expect(snaps.snapshotDetail('ffffffff')).rejects.toThrow('Không tìm thấy');
+  });
+
+  it('khôi phục một file hoặc cả thư mục về một bản lưu; trạng thái hiện tại được lưu trước', async () => {
+    const all = (await snaps.status()).snapshots;
+    const latest = all[0];
+    const first = all.at(-1);
+    writeFileSync(path.join(root, 'Đề thi', 'de.docx'), docx(['Sửa dở chưa lưu']));
+
+    // Một file: đưa đề về như "Bản đầu tiên".
+    expect(await snaps.restoreSnapshot(first!.id, 'Đề thi/de.docx')).toEqual({ restored: 1, removed: 0, backup: 'Trước khi khôi phục về bản: Bản đầu tiên' });
+    expect(new Uint8Array(readFileSync(path.join(root, 'Đề thi', 'de.docx')))).toEqual(original);
+    const after1 = await snaps.status();
+    expect(after1.snapshots[0]!.message).toBe('Trước khi khôi phục về bản: Bản đầu tiên');
+    // Bản sửa dở đã được lưu lại trước khi khôi phục.
+    const saved = await snaps.snapshotDiff(after1.snapshots[0]!.id, 'Đề thi/de.docx');
+    expect(saved.change!.hunks.flatMap((h) => h.lines)).toContain('+Sửa dở chưa lưu');
+
+    // Cả thư mục về "Bản đầu tiên": diem.xlsx (tạo sau) bị xóa, sach.pdf giữ nguyên.
+    // Không có gì mới để lưu: trạng thái trước đó nằm sẵn trong bản mới nhất.
+    expect(await snaps.restoreSnapshot(first!.id)).toEqual({ restored: 0, removed: 1, backup: 'Trước khi khôi phục về bản: Bản đầu tiên' });
+    expect(existsSync(path.join(root, 'diem.xlsx'))).toBe(false);
+    expect(existsSync(path.join(root, 'sach.pdf'))).toBe(true);
+    expect(existsSync(path.join(root, 'ghi-chu.txt'))).toBe(true); // file không theo dõi không bị đụng tới
+
+    // Hoàn tác: khôi phục cả thư mục về bản mới nhất trước đó (đề đã sửa câu 1 và diem.xlsx).
+    expect(await snaps.restoreSnapshot(latest!.id)).toMatchObject({ restored: 2, removed: 0 });
+    expect(existsSync(path.join(root, 'diem.xlsx'))).toBe(true);
+    await expect(snaps.restoreSnapshot(first!.id, '../ngoai.docx')).rejects.toThrow();
   });
 });
