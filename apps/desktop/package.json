@@ -1,0 +1,24 @@
+{
+  "name": "@ide/desktop",
+  "productName": "Bàn làm việc",
+  "version": "0.1.0",
+  "description": "Bàn làm việc với tài liệu PDF, Word, Excel cùng Claude",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.mjs",
+  "author": "Bàn làm việc",
+  "scripts": {
+    "bundle": "node scripts/bundle.mjs",
+    "typecheck": "tsc --noEmit -p .",
+    "dist:win": "node scripts/dist.mjs win",
+    "dist:mac": "node scripts/dist.mjs mac"
+  },
+  "devDependencies": {
+    "@ide/server": "workspace:*",
+    "@ide/shared": "workspace:*",
+    "@types/node": "^20.19.43",
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.28.2"
+  }
+}

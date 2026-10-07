@@ -2,4 +2,7 @@ packages:
   - apps/*
   - packages/*
 allowBuilds:
+  electron: true
+  # Chỉ dùng cho bộ cài Squirrel; app dùng NSIS nên không cần chạy script cài đặt.
+  electron-winstaller: false
   esbuild: true

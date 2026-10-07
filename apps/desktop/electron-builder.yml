@@ -1,0 +1,34 @@
+appId: vn.banlamviec.desktop
+productName: Bàn làm việc
+# Tên file chạy và bộ cài không dấu để tránh lỗi đường dẫn trên một số máy.
+executableName: BanLamViec
+artifactName: BanLamViec-${version}-${os}-${arch}.${ext}
+directories:
+  output: release
+  buildResources: build/icons
+files:
+  - dist/**/*
+  - package.json
+asar: true
+extraResources:
+  - from: build/resources/web
+    to: web
+  - from: build/resources/profile
+    to: profile
+  - from: build/claude/${os}-${arch}
+    to: claude
+win:
+  target: nsis
+  # Không có chứng thư ký số; bỏ bước sửa exe (cần Wine khi build trên Linux).
+  signAndEditExecutable: false
+nsis:
+  oneClick: true
+  perMachine: false
+  shortcutName: Bàn làm việc
+mac:
+  category: public.app-category.productivity
+  # Chưa có Apple Developer ID: ký ad-hoc để chạy được trên máy Apple Silicon.
+  identity: '-'
+  hardenedRuntime: false
+dmg:
+  title: Bàn làm việc

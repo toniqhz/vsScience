@@ -12,10 +12,10 @@ import { PathError } from './paths.js';
  */
 export function resolveClaudeBin(): string {
   if (process.env.IDE_CLAUDE_BIN) return process.env.IDE_CLAUDE_BIN;
-  const require = createRequire(import.meta.url);
-  const sdkRequire = createRequire(require.resolve('@anthropic-ai/claude-agent-sdk'));
   const pkg = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;
   try {
+    const require = createRequire(import.meta.url);
+    const sdkRequire = createRequire(require.resolve('@anthropic-ai/claude-agent-sdk'));
     const dir = path.dirname(sdkRequire.resolve(`${pkg}/package.json`));
     return path.join(dir, process.platform === 'win32' ? 'claude.exe' : 'claude');
   } catch {
@@ -94,13 +94,19 @@ export class ClaudeAuth {
     const tmp = mkdtempSync(path.join(tmpdir(), 'ide-login-'));
     this.#tmp = tmp;
     const urlFile = path.join(tmp, 'url');
-    const opener = path.join(tmp, 'open-browser.sh');
-    // CLI gọi $BROWSER <url>: ghi link ra file thay vì mở trình duyệt trên máy chủ.
-    writeFileSync(opener, `#!/bin/sh\nprintf '%s' "$1" > '${urlFile}'\n`, { mode: 0o700 });
+    // CLI gọi $BROWSER <url>: ghi link ra file thay vì mở trình duyệt trên máy chủ (để giao diện
+    // hiện link — cần khi chạy trong WSL). Windows không chạy được script sh: để CLI tự mở trình duyệt
+    // mặc định, giao diện vẫn có link dự phòng.
+    let browserEnv: Record<string, string> = {};
+    if (process.platform !== 'win32') {
+      const opener = path.join(tmp, 'open-browser.sh');
+      writeFileSync(opener, `#!/bin/sh\nprintf '%s' "$1" > '${urlFile}'\n`, { mode: 0o700 });
+      browserEnv = { BROWSER: opener };
+    }
 
     this.#progress = { state: 'waiting', autoUrl: null, manualUrl: null, message: null };
     const child = spawn(this.bin, ['auth', 'login', '--claudeai'], {
-      env: cliEnv({ BROWSER: opener }),
+      env: cliEnv(browserEnv),
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.#child = child;

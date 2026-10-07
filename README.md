@@ -68,3 +68,28 @@ pnpm typecheck
 pnpm test        # test server: token, Host, chặn đường dẫn ra ngoài, lọc cây
 pnpm build && pnpm start   # server phục vụ luôn bản build của web ở :4317
 ```
+
+## App desktop (Windows, macOS)
+
+App Electron trong `apps/desktop/`: chạy server ngay trong app, mở cửa sổ trỏ tới giao diện.
+Đi kèm Claude Code CLI đúng hệ điều hành và hồ sơ Claude khoa học. Dữ liệu app (token, bản lưu)
+nằm trong thư mục dữ liệu của app; lần đầu mở thư mục Tài liệu (Documents).
+
+```bash
+pnpm --filter @ide/desktop dist:win   # Windows: trên Linux/WSL ra bản .zip; trên Windows ra thêm bộ cài .exe
+pnpm --filter @ide/desktop dist:mac   # macOS: chỉ build được trên máy Mac (.dmg + .zip, arm64 và x64)
+```
+
+Kết quả nằm trong `apps/desktop/release/`. Workflow `.github/workflows/desktop.yml` build cả hai trên GitHub Actions.
+
+Kiểm tra bản đóng gói mà không mở cửa sổ (dùng thư mục tạm, không đụng dữ liệu thật):
+
+```bash
+BanLamViec.exe --smoke-test=C:\đường\dẫn\ket-qua.json
+```
+
+Chạy từ terminal của VS Code thì bỏ biến `ELECTRON_RUN_AS_NODE` trước, nếu không Electron chạy như Node.
+
+Chưa ký số: Windows SmartScreen sẽ cảnh báo (bấm "More info" → "Run anyway"); macOS chặn app tải từ mạng
+(chuột phải → Open, hoặc `xattr -dr com.apple.quarantine "/Applications/Bàn làm việc.app"`).
+

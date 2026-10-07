@@ -30,7 +30,8 @@ export interface Config {
   usePolling: boolean;
 }
 
-const configDir = path.join(process.env.XDG_CONFIG_HOME || path.join(homedir(), '.config'), 'ide');
+/** Nơi lưu token, thư mục gần đây, kho bản lưu. App desktop đặt IDE_CONFIG_DIR vào thư mục dữ liệu của app. */
+const configDir = process.env.IDE_CONFIG_DIR || path.join(process.env.XDG_CONFIG_HOME || path.join(homedir(), '.config'), 'ide');
 
 function isDir(p: string): boolean {
   try {
@@ -40,11 +41,13 @@ function isDir(p: string): boolean {
   }
 }
 
-/** Ưu tiên: IDE_WORKSPACE → thư mục mở lần trước → demo-workspace trong repo. */
+/** Ưu tiên: IDE_WORKSPACE → thư mục mở lần trước → IDE_DEFAULT_WORKSPACE (app desktop) → demo-workspace trong repo. */
 function resolveWorkspace(statePath: string): string {
   if (process.env.IDE_WORKSPACE) return path.resolve(process.env.IDE_WORKSPACE);
   const last = readState(statePath).lastWorkspace;
   if (last && isDir(last)) return last;
+  const fallback = process.env.IDE_DEFAULT_WORKSPACE;
+  if (fallback && isDir(fallback)) return path.resolve(fallback);
   const demo = path.join(repoRoot, 'demo-workspace');
   mkdirSync(demo, { recursive: true });
   return demo;
@@ -94,7 +97,7 @@ export function loadConfig(): Config {
     openUrl:
       process.env.IDE_OPEN_URL ??
       (process.env.npm_lifecycle_event === 'dev' ? `http://${host}:5173` : `http://${host}:${port}`),
-    webDist: path.join(repoRoot, 'apps/web/dist'),
+    webDist: process.env.IDE_WEB_DIST || path.join(repoRoot, 'apps/web/dist'),
     profileDir: resolveProfileDir(),
     usePolling: process.env.IDE_POLLING === '1',
   };

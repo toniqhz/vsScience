@@ -6,3 +6,7 @@ dist/
 demo-workspace/
 # Tài nguyên pdf.js được chép từ node_modules (scripts/copy-pdfjs-assets.mjs)
 apps/web/public/pdfjs/
+
+# App desktop: file sinh ra khi đóng gói
+apps/desktop/build/
+apps/desktop/release/
