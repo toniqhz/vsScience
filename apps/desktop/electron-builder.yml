@@ -10,6 +10,12 @@ files:
   - dist/**/*
   - package.json
 asar: true
+# Chỉ giữ gói ngôn ngữ tiếng Việt và tiếng Anh của Electron (bớt vài chục MB).
+electronLanguages:
+  - vi
+  - en-US
+# Nén tối đa (LZMA): build lâu hơn, bộ cài nhỏ hơn.
+compression: maximum
 extraResources:
   - from: build/resources/web
     to: web

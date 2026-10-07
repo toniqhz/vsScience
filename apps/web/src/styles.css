@@ -1552,6 +1552,63 @@ kbd {
 
 /* ---------- Hộp thoại ---------- */
 
+/* ---------- Gói tùy chọn (cài thêm khi cần) ---------- */
+
+.pack-dialog {
+  max-width: 560px;
+}
+
+.pack-logo {
+  color: var(--claude);
+}
+
+.pack-body {
+  padding: 4px 18px 12px;
+  overflow: auto;
+  line-height: 1.55;
+}
+
+.pack-body ul {
+  margin: 4px 0 10px;
+  padding-left: 20px;
+}
+
+.pack-body li {
+  margin: 3px 0;
+}
+
+.pack-muted {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.pack-facts .codicon {
+  color: var(--accent);
+  vertical-align: -2px;
+}
+
+.pack-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.pack-error {
+  margin: 10px 0 0;
+}
+
+.pack-done {
+  color: #73c991;
+}
+
+.pack-hint {
+  margin: -12px 0 20px;
+  font-size: 12px;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

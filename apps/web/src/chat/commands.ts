@@ -1,7 +1,7 @@
 // Lệnh gõ bằng "/" trong ô chat, theo kiểu Claude Code.
 // "action": lệnh chạy ngay; "prompt": kỹ năng — điền sẵn câu lệnh mẫu để người dùng sửa rồi gửi.
 
-export type CommandAction = 'clear' | 'compact' | 'context' | 'model' | 'mode' | 'login' | 'logout' | 'help';
+export type CommandAction = 'clear' | 'compact' | 'context' | 'model' | 'mode' | 'login' | 'logout' | 'packs' | 'help';
 
 export type Command =
   | { name: string; description: string; icon: string; kind: 'action'; action: CommandAction }
@@ -15,6 +15,7 @@ export const COMMANDS: Command[] = [
   { name: 'mode', description: 'Đổi chế độ: hỏi trước / tự động / lập kế hoạch', icon: 'codicon-shield', kind: 'action', action: 'mode' },
   { name: 'login', description: 'Đăng nhập tài khoản Claude', icon: 'codicon-account', kind: 'action', action: 'login' },
   { name: 'logout', description: 'Đăng xuất tài khoản Claude trên máy này', icon: 'codicon-sign-out', kind: 'action', action: 'logout' },
+  { name: 'cai-goi', description: 'Cài gói phân tích số liệu (thống kê, biểu đồ)', icon: 'codicon-cloud-download', kind: 'action', action: 'packs' },
   { name: 'help', description: 'Danh sách lệnh và phím tắt', icon: 'codicon-question', kind: 'action', action: 'help' },
   {
     name: 'soan-trac-nghiem',

@@ -8,6 +8,7 @@ import type {
   DirListing,
   FileDiff,
   LoginProgress,
+  PackInfo,
   PlanUsage,
   RestoreResult,
   ServerEvent,
@@ -119,6 +120,8 @@ export const api = {
     (await request(`/api/changes/diff?path=${encodeURIComponent(path)}`)).json() as Promise<FileDiff>,
   saveSnapshot: async (message: string) =>
     ((await (await request('/api/changes/snapshot', { message })).json()) as { saved: boolean }).saved,
+  packs: async () => (await request('/api/packs')).json() as Promise<PackInfo[]>,
+  installPack: async (id: string) => (await request('/api/packs/install', { id })).json() as Promise<PackInfo>,
   usage: async (refresh = false) =>
     ((await (await request(`/api/usage${refresh ? '?refresh=1' : ''}`)).json()) as { usage: PlanUsage | null }).usage,
   openExternal: async (path: string) => void (await request('/api/file/open-external', { path })),

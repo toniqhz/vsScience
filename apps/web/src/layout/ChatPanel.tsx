@@ -9,6 +9,7 @@ import { LoginDialog, planLabel } from '../chat/LoginDialog';
 import { DEFAULT_MODEL, findModel, type Effort, type PermissionMode } from '../chat/models';
 import { Transcript, agentLabel } from '../chat/Transcript';
 import { UsageCard } from '../chat/UsageCard';
+import { PackDialog, wasPackAsked } from '../chat/PackDialog';
 
 const SUGGESTIONS = [
   { icon: 'codicon-checklist', title: 'Soạn câu trắc nghiệm', prompt: '/soan-trac-nghiem' },
@@ -37,7 +38,14 @@ function loadPrefs(): Prefs {
  * hội thoại dựng từ luồng sự kiện qua WebSocket, nên tải lại trang vẫn giữ nguyên.
  */
 export function ChatPanel({ activePath, onOpenFile }: { activePath: string | null; onOpenFile: (path: string) => void }) {
-  const { onAgent, planUsage, refreshUsage } = useWorkspace();
+  const { onAgent, planUsage, refreshUsage, packs } = useWorkspace();
+  const [packOpen, setPackOpen] = useState<string | null>(null);
+  const dataPack = packs?.find((p) => p.id === 'data') ?? null;
+  // Lần đầu mở app (bản desktop): hỏi có cài gói phân tích số liệu không.
+  useEffect(() => {
+    if (dataPack?.state === 'missing' && !wasPackAsked('data')) setPackOpen('data');
+  }, [dataPack?.state]);
+  const openPack = packs?.find((p) => p.id === packOpen) ?? null;
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
@@ -127,6 +135,13 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
           })
           .catch(fail);
         return;
+      case 'packs':
+        if (!dataPack) {
+          local({ kind: 'notice', tone: 'info', text: 'Gói tùy chọn chỉ có trong app desktop. Khi chạy dev, Claude dùng Python có sẵn trên máy.' });
+          return;
+        }
+        setPackOpen('data');
+        return;
       case 'help':
         local({ kind: 'help' });
         return;
@@ -165,6 +180,12 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
               tới file, <kbd>/</kbd> để gọi lệnh.
             </p>
             {profile && <ProfileBadge profile={profile} />}
+            {dataPack && dataPack.state !== 'installed' && (
+              <button className="link-btn pack-hint" onClick={() => setPackOpen('data')}>
+                <span className="codicon codicon-cloud-download" />{' '}
+                {dataPack.state === 'installing' ? `Đang cài gói phân tích số liệu… ${dataPack.message ?? ''}` : 'Gói phân tích số liệu (thống kê, biểu đồ) chưa cài · Cài'}
+              </button>
+            )}
             <div className="suggestions">
               {SUGGESTIONS.map((s) => {
                 const cmd = COMMANDS.find((c) => `/${c.name}` === s.prompt);
@@ -228,6 +249,7 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
         />
         <UsageCard usage={planUsage} onRefresh={() => refreshUsage(true)} />
       </div>
+      {openPack && <PackDialog pack={openPack} onClose={() => setPackOpen(null)} />}
       {loginOpen && <LoginDialog status={auth} onClose={() => setLoginOpen(false)} onConnected={onConnected} />}
     </div>
   );

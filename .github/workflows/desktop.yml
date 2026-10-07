@@ -29,8 +29,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: BanLamViec-${{ matrix.target }}
+          # Chỉ bộ cài (.exe / .dmg); không kèm thư mục chạy thẳng hay blockmap.
           path: |
             apps/desktop/release/*.exe
             apps/desktop/release/*.dmg
-            apps/desktop/release/*.zip
           if-no-files-found: error

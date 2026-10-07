@@ -1,7 +1,7 @@
 {
   "name": "@ide/desktop",
   "productName": "Bàn làm việc",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Bàn làm việc với tài liệu PDF, Word, Excel cùng Claude",
   "private": true,
   "type": "module",

@@ -205,6 +205,19 @@ export interface PlanUsage {
   updatedAt: number;
 }
 
+/** Gói tùy chọn (thư viện Python cài thêm khi người dùng đồng ý), ví dụ gói phân tích số liệu. */
+export interface PackInfo {
+  id: string;
+  title: string;
+  packages: string[];
+  downloadBytes: number;
+  installedBytes: number;
+  state: 'missing' | 'installing' | 'installed' | 'error';
+  /** Tiến độ khi đang cài: số file đã xử lý / tổng. */
+  progress?: { done: number; total: number };
+  message?: string;
+}
+
 export type ServerEvent =
   | { type: 'hello'; workspace: WorkspaceInfo }
   | { type: 'fs'; changes: { event: FsEventType; path: string }[] }
@@ -213,4 +226,5 @@ export type ServerEvent =
   /** Danh sách phiên hoặc bản lưu vừa đổi — giao diện tải lại khi cần. */
   | { type: 'sessions-changed' }
   | { type: 'changes-changed' }
-  | { type: 'usage'; usage: PlanUsage };
+  | { type: 'usage'; usage: PlanUsage }
+  | { type: 'pack'; pack: PackInfo };

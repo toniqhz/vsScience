@@ -1,0 +1,7 @@
+# Gói TÙY CHỌN "Phân tích số liệu": không nằm trong bộ cài, người dùng chọn cài khi mở app lần đầu
+# (hoặc sau này bằng lệnh /cai-goi). Lúc build, script khóa phiên bản và SHA256 của từng file wheel
+# cho từng nền tảng (build/python/<nền tảng>-extras.lock); app chỉ cài đúng các file đó.
+numpy==2.3.4
+pandas==2.3.3
+scipy==1.16.3
+matplotlib==3.10.7

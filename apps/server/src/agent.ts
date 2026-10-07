@@ -22,7 +22,7 @@ import type { AgentBlock, AgentEvent, AgentMode, AgentSessionInfo, ContextUsage,
 import { cliEnv } from './claude-auth.js';
 import { FolderGuard, claudeScratchRoot } from './folderGuard.js';
 import type { ClaudeProfile } from './profile.js';
-import { pythonHome, runtimePrompt } from './runtime.js';
+import { pythonHome, runtimeKey, runtimePrompt } from './runtime.js';
 
 /** Phần của Query (Agent SDK) mà phiên dùng tới — tách ra để test bằng phiên giả. */
 export interface AgentQuery extends AsyncIterable<SDKMessage> {
@@ -283,6 +283,7 @@ export class AgentSession {
   #input: InputQueue | null = null;
   #sessionId: string | null = null;
   #applied: AgentSettings | null = null;
+  #runtime = '';
   #cwd: string | null = null;
   #running = false;
   #messages = new Map<string, MessageState>();
@@ -349,8 +350,9 @@ export class AgentSession {
 
   async send(text: string, files: string[], settings: AgentSettings) {
     const cwd = this.opts.cwd();
+    // Cài thêm gói thư viện thì khởi động lại phiên (tiếp tục đúng hội thoại) để Claude thấy thư viện mới.
     const needsRestart =
-      !this.#query || this.#cwd !== cwd || this.#applied?.effort !== settings.effort;
+      !this.#query || this.#cwd !== cwd || this.#applied?.effort !== settings.effort || this.#runtime !== runtimeKey();
     if (needsRestart) {
       await this.#stop();
       this.#start(settings, cwd);
@@ -565,6 +567,7 @@ export class AgentSession {
     this.#input = input;
     this.#applied = settings;
     this.#cwd = cwd;
+    this.#runtime = runtimeKey();
     void this.#pump(q);
   }
 

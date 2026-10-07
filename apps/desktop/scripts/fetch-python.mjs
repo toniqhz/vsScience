@@ -116,6 +116,61 @@ function dirSize(dir) {
   return total;
 }
 
+/** Tên dự án Python chuẩn hóa (PEP 503) để so khớp. */
+const normalize = (name) => name.toLowerCase().replace(/[-_.]+/g, '-');
+
+/**
+ * Khóa gói tùy chọn "Phân tích số liệu" cho một nền tảng: tải wheel (gồm phụ thuộc), bỏ các gói đã
+ * có trong Python lõi, ghi tên==phiên bản kèm SHA256 từng file. App cài bằng pip --require-hashes
+ * nên chỉ cài đúng các file này. Thử cài vào thư mục tạm để đo dung lượng và chắc chắn cài được.
+ */
+function lockExtras(target, platforms, coreSite, outDir) {
+  const tmp = path.join(desktop, 'build/cache/extras', target);
+  rmSync(tmp, { recursive: true, force: true });
+  mkdirSync(path.join(tmp, 'wheels'), { recursive: true });
+  const pipArgs = ['--disable-pip-version-check', '--quiet', '--only-binary=:all:', '--implementation', 'cp', '--python-version', PY_MINOR, ...platforms.flatMap((p) => ['--platform', p])];
+  execFileSync(host.exe, ['-m', 'pip', 'download', ...pipArgs, '-d', path.join(tmp, 'wheels'), '-r', path.join(desktop, 'python-extras.txt')], { stdio: 'inherit' });
+  const core = new Set(
+    readdirSync(coreSite)
+      .filter((n) => n.endsWith('.dist-info'))
+      .map((n) => normalize(n.replace(/-[^-]+\.dist-info$/, ''))),
+  );
+  const lines = [];
+  let download = 0;
+  const kept = [];
+  for (const file of readdirSync(path.join(tmp, 'wheels')).sort()) {
+    const [name, version] = file.split('-');
+    if (core.has(normalize(name))) continue; // đã có trong Python lõi
+    const buf = readFileSync(path.join(tmp, 'wheels', file));
+    download += buf.length;
+    kept.push(path.join(tmp, 'wheels', file));
+    lines.push(`${name}==${version} --hash=sha256:${createHash('sha256').update(buf).digest('hex')}`);
+  }
+  // Thử cài đúng như app sẽ cài (không mạng, chỉ từ các file đã khóa) để đo dung lượng sau khi cài.
+  const lock = path.join(tmp, 'data.lock');
+  writeFileSync(lock, lines.join('\n') + '\n');
+  execFileSync(host.exe, ['-m', 'pip', 'install', ...pipArgs, '--no-deps', '--require-hashes', '--no-index', '--find-links', path.join(tmp, 'wheels'), '--target', path.join(tmp, 'site'), '-r', lock], { stdio: 'inherit' });
+  prune(path.join(tmp, 'site'));
+  const installed = dirSize(path.join(tmp, 'site'));
+  mkdirSync(outDir, { recursive: true });
+  writeFileSync(path.join(outDir, 'data.lock'), lines.join('\n') + '\n');
+  writeFileSync(
+    path.join(outDir, 'data.json'),
+    JSON.stringify(
+      {
+        id: 'data',
+        title: 'Gói phân tích số liệu',
+        packages: ['numpy', 'pandas', 'scipy', 'matplotlib'],
+        downloadBytes: download,
+        installedBytes: installed,
+      },
+      null,
+      2,
+    ),
+  );
+  console.log(`  gói tùy chọn: ${kept.length} file, tải ${(download / 1e6).toFixed(0)} MB, sau khi cài ${(installed / 1e6).toFixed(0)} MB`);
+}
+
 const requested = process.argv.slice(2);
 if (!requested.length || requested.some((t) => !TARGETS[t])) {
   console.error(`Dùng: node scripts/fetch-python.mjs ${Object.keys(TARGETS).join('|')} …`);
@@ -149,9 +204,9 @@ for (const target of requested) {
     ],
     { stdio: 'inherit' },
   );
-  // pip của bản đích không cần trong app (không cài thêm thư viện lúc chạy).
-  for (const name of readdirSync(site)) if (/^pip(-|$)/.test(name)) rmSync(path.join(site, name), { recursive: true, force: true });
+  // Giữ pip: app dùng nó để cài gói tùy chọn (phân tích số liệu) khi người dùng đồng ý.
   prune(dest);
+  lockExtras(target, platforms, site, path.join(dest, 'packs'));
   // Header C và thư viện liên kết chỉ dùng khi biên dịch extension.
   for (const dir of ['include', 'libs']) rmSync(path.join(dest, dir), { recursive: true, force: true });
   if (!target.startsWith('win') && !existsSync(path.join(dest, 'bin/python'))) symlinkSync('python3', path.join(dest, 'bin/python'));

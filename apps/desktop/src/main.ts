@@ -24,6 +24,8 @@ function configureEnv() {
   // Python portable có sẵn thư viện xử lý Word/Excel/PDF (không có khi chạy thử từ repo chưa build).
   const python = path.join(resources, 'python');
   if (existsSync(python)) process.env.IDE_PYTHON_HOME ??= python;
+  // Gói tùy chọn (phân tích số liệu) cài vào thư mục dữ liệu của app khi người dùng đồng ý.
+  process.env.IDE_PYTHON_PACKS_DIR ??= path.join(app.getPath('userData'), 'python-packs');
   process.env.IDE_DEFAULT_WORKSPACE ??= app.getPath('documents');
   // Cổng ngẫu nhiên: nhiều người dùng / nhiều bản chạy cùng lúc không đụng nhau.
   process.env.IDE_PORT ??= '0';
@@ -64,7 +66,7 @@ async function smokeTest(outFile: string) {
       const { withRuntime } = await import('../../server/src/runtime.js');
       const env = withRuntime({ ...process.env });
       const check = [
-        'import sys, os, tempfile, docx, openpyxl, xlrd, fitz, pandas, numpy, scipy, matplotlib',
+        'import sys, os, tempfile, docx, openpyxl, xlrd, fitz',
         "p = os.path.join(tempfile.gettempdir(), 'kiem-tra-de.docx')",
         "d = docx.Document(); d.add_paragraph('Đề kiểm tra — Câu 1'); d.save(p)",
         "print(docx.Document(p).paragraphs[0].text, '|', sys.version.split()[0], '|', sys.executable)",
@@ -79,6 +81,29 @@ async function smokeTest(outFile: string) {
           : ['/bin/sh', ['-c', `python '${script}'`]];
       const { stdout } = await promisify(execFile)(shellExe, shellArgs, { env, timeout: 120_000 });
       result.python = stdout.trim();
+      const headers = { authorization: `Bearer ${config.token}`, 'content-type': 'application/json' };
+      result.packs = await fetch(`http://127.0.0.1:${port}/api/packs`, { headers }).then((r) => r.json());
+      // --smoke-test-packs: cài thật gói phân tích số liệu từ PyPI (vào thư mục tạm) rồi chạy thử.
+      if (process.argv.includes('--smoke-test-packs')) {
+        await fetch(`http://127.0.0.1:${port}/api/packs/install`, { method: 'POST', headers, body: JSON.stringify({ id: 'data' }) });
+        const t0 = Date.now();
+        let pack: { state: string; message?: string } | undefined;
+        while (Date.now() - t0 < 600_000) {
+          await new Promise((r) => setTimeout(r, 2000));
+          pack = ((await fetch(`http://127.0.0.1:${port}/api/packs`, { headers }).then((r) => r.json())) as { id: string; state: string }[]).find((p) => p.id === 'data');
+          if (pack && pack.state !== 'installing') break;
+        }
+        result.packInstall = { ...pack, seconds: Math.round((Date.now() - t0) / 1000) };
+        const env2 = withRuntime({ ...process.env });
+        const check2 = "import pandas, numpy, scipy.stats as st, matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt; print('pandas', pandas.__version__, '| p =', round(st.ttest_ind([1,2,3,4],[2,3,4,9]).pvalue, 3))";
+        const script2 = path.join(tmpdir(), `banlamviec-check2-${process.pid}.py`);
+        writeFileSync(script2, check2);
+        const [sh2, args2] =
+          process.platform === 'win32'
+            ? ['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `python '${script2}'`]]
+            : ['/bin/sh', ['-c', `python '${script2}'`]];
+        result.packPython = (await promisify(execFile)(sh2, args2, { env: env2, timeout: 120_000 })).stdout.trim();
+      }
     }
     await server.close();
     result.ok = true;

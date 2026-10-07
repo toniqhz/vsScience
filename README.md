@@ -85,9 +85,12 @@ Kết quả nằm trong `apps/desktop/release/`.
 App chạy được trên máy chưa cài gì:
 
 - **Python 3.12 portable** (python-build-standalone, bản phát hành ghim trong `apps/desktop/scripts/fetch-python.mjs`,
-  kiểm SHA256) kèm thư viện trong `apps/desktop/python-requirements.txt`: python-docx, openpyxl, xlrd, PyMuPDF,
-  pandas, numpy, scipy, matplotlib. App đưa Python này lên đầu PATH của Claude, bật UTF-8 (tiếng Việt trên Windows)
-  và báo cho Claude biết thư viện có sẵn. Bớt thư viện trong file requirements để app nhẹ hơn (scipy ~100 MB).
+  kiểm SHA256) kèm thư viện lõi trong `apps/desktop/python-requirements.txt`: python-docx, openpyxl, xlrd, PyMuPDF.
+  App đưa Python này lên đầu PATH của Claude, bật UTF-8 (tiếng Việt trên Windows) và báo cho Claude thư viện có sẵn.
+- **Gói tùy chọn "Phân tích số liệu"** (`apps/desktop/python-extras.txt`: numpy, pandas, scipy, matplotlib) không nằm
+  trong bộ cài. Lần đầu mở app hỏi người dùng có cài không (nêu mục đích, dung lượng); cài sau bằng lệnh `/cai-goi`.
+  Lúc build, script khóa từng file wheel kèm SHA256 cho từng nền tảng (`resources/python/packs/data.lock`); app cài bằng
+  `pip --require-hashes` vào thư mục dữ liệu của app, rồi đưa vào `PYTHONPATH` của Claude.
 - **Windows không cần Git:** không có Git Bash thì Claude Code dùng công cụ PowerShell có sẵn.
 - **Claude Code CLI** đúng hệ điều hành. Workflow `.github/workflows/desktop.yml` build cả hai trên GitHub Actions.
 

@@ -14,6 +14,8 @@ import { MIME_BY_EXT, PathError, fileKind, resolveInWorkspace, toRelPosix, valid
 import { emptyDocx, emptyXlsx } from './templates.js';
 import { openExternal } from './openExternal.js';
 import { PlanUsageMonitor, type UsageQueryFn } from './usage.js';
+import { PackManager } from './packs.js';
+import { packsDir, pythonHome } from './runtime.js';
 import { loadProfile } from './profile.js';
 import { buildTree } from './tree.js';
 import { WorkspaceManager, listDirs } from './workspace.js';
@@ -82,6 +84,7 @@ export async function buildApp(
   const auth = new ClaudeAuth(config.claudeBin);
   app.addHook('onClose', async () => auth.cancel());
   const planUsage = new PlanUsageMonitor(config.claudeBin, opts.usageQueryFn);
+  const packs = new PackManager(pythonHome(), packsDir(), (pack) => broadcast({ type: 'pack', pack }));
   const agent = new AgentSession({
     cwd: () => workspace.root,
     claudeBin: config.claudeBin,
@@ -233,6 +236,13 @@ export async function buildApp(
     await agent.clear();
     return { ok: true };
   });
+  // Gói tùy chọn (thư viện Python cài thêm khi người dùng đồng ý).
+  app.get('/api/packs', async () => packs.list());
+  app.post<{ Body: { id: string } }>(
+    '/api/packs/install',
+    { schema: { body: { type: 'object', required: ['id'], properties: { id: { type: 'string', pattern: '^[a-z0-9-]{1,40}$' } } } } },
+    async (req) => packs.install(req.body.id),
+  );
   app.get<{ Querystring: { refresh?: string } }>('/api/usage', async (req) => ({
     usage: await planUsage.get(req.query.refresh === '1'),
   }));

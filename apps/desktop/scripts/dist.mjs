@@ -73,7 +73,8 @@ run('node', [path.join(desktop, 'scripts/fetch-python.mjs'), ...platforms.map(([
 
 console.log('\n▸ Đóng gói bằng electron-builder');
 // Bộ cài NSIS cần chạy trên Windows (trên Linux phải có Wine); ngoài Windows thì tạo bản zip chạy thẳng.
-const winTargets = process.platform === 'win32' ? ['nsis', 'zip'] : ['zip'];
-const args = target === 'win' ? ['--win', ...winTargets, '--x64'] : ['--mac', 'dmg', 'zip', '--arm64', '--x64'];
+// Mỗi nền tảng chỉ một bộ cài: .exe (NSIS) cho Windows, .dmg cho macOS.
+const winTargets = process.platform === 'win32' ? ['nsis'] : ['zip'];
+const args = target === 'win' ? ['--win', ...winTargets, '--x64'] : ['--mac', 'dmg', '--arm64', '--x64'];
 run(path.join(desktop, 'node_modules/.bin/electron-builder'), [...args, '--publish', 'never'], desktop);
 console.log(`\n✓ Xong. Bộ cài nằm trong ${path.join(desktop, 'release')}`);
