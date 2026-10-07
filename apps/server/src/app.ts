@@ -40,7 +40,7 @@ export type AppConfig = Pick<
   Config,
   'initialWorkspace' | 'token' | 'webDist' | 'statePath' | 'claudeBin' | 'snapshotsDir' | 'usePolling'
 > &
-  Partial<Pick<Config, 'profileDir'>>;
+  Partial<Pick<Config, 'profileDir' | 'scratchDir'>>;
 
 export async function buildApp(
   config: AppConfig,
@@ -101,6 +101,7 @@ export async function buildApp(
       if (saved) broadcast({ type: 'changes-changed' });
     },
     profile: () => loadProfile(config.profileDir ?? null),
+    scratchRoot: config.scratchDir,
     queryFn: opts.queryFn,
     sessions: opts.sessions,
   });

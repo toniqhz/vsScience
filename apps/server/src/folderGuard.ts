@@ -22,6 +22,10 @@ const FILE_TOOLS = new Set(['Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit'
 const SEARCH_TOOLS = new Set(['Glob', 'Grep', 'LS']);
 const SHELL_TOOLS: Record<string, ShellMode> = { Bash: 'posix', PowerShell: 'powershell' };
 const SCRIPT_EXT = /\.(py|sh|bash|ps1|bat|cmd|js|mjs|cjs|ts|r|R|pl|rb)$/;
+/** Lệnh cài phần mềm/thư viện lên máy: thay đổi ngoài thư mục dù câu lệnh không có đường dẫn nào. */
+const INSTALL_CMD = /(?:^|[\s;&|(])(?:(?:pip3?|uv\s+pip|python3?(?:\.exe)?\s+-m\s+pip|py\s+-m\s+pip|conda|mamba|npm|pnpm|yarn|gem|cargo|go|winget|choco|scoop|brew|apt(?:-get)?|dnf|yum|pacman)\s+(?:install|add)\b|Install-(?:Module|Package)\b)/i;
+/** Mục hiện trong thẻ xin quyền khi lệnh cài phần mềm lên máy. */
+export const INSTALL_REASON = 'Cài phần mềm hoặc thư viện lên máy';
 const MAX_SCRIPT_BYTES = 256 * 1024;
 
 export type ShellMode = 'posix' | 'powershell';
@@ -201,13 +205,16 @@ export class FolderGuard {
       const base = this.toPath(str(input.pattern), cwd);
       if (base && !this.#allowed(base)) out.add(base);
     } else if (SHELL_TOOLS[toolName]) {
-      this.#scan(str(input.command), cwd, SHELL_TOOLS[toolName]!, out, 0);
+      const command = str(input.command);
+      if (INSTALL_CMD.test(command)) out.add(INSTALL_REASON);
+      this.#scan(command, cwd, SHELL_TOOLS[toolName]!, out, 0);
     }
     return [...out];
   }
 
   /** Rút gọn đường dẫn để hiện cho người dùng: thay thư mục nhà bằng ~. */
   display(p: string): string {
+    if (p === INSTALL_REASON) return p;
     return this.#isInside(p, this.#home) ? `~${p.slice(this.#home.length)}` : p;
   }
 

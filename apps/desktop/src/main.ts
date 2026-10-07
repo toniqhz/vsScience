@@ -72,7 +72,7 @@ async function smokeTest(outFile: string) {
         "print(docx.Document(p).paragraphs[0].text, '|', sys.version.split()[0], '|', sys.executable)",
         'os.remove(p)',
       ].join('\n');
-      const script = path.join(tmpdir(), `banlamviec-check-${process.pid}.py`);
+      const script = path.join(tmpdir(), `vsscience-check-${process.pid}.py`);
       writeFileSync(script, check);
       // Gọi "python" qua shell như Claude: kiểm tra PATH trỏ đúng Python đi kèm.
       const [shellExe, shellArgs] =
@@ -96,7 +96,7 @@ async function smokeTest(outFile: string) {
         result.packInstall = { ...pack, seconds: Math.round((Date.now() - t0) / 1000) };
         const env2 = withRuntime({ ...process.env });
         const check2 = "import pandas, numpy, scipy.stats as st, matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt; print('pandas', pandas.__version__, '| p =', round(st.ttest_ind([1,2,3,4],[2,3,4,9]).pvalue, 3))";
-        const script2 = path.join(tmpdir(), `banlamviec-check2-${process.pid}.py`);
+        const script2 = path.join(tmpdir(), `vsscience-check2-${process.pid}.py`);
         writeFileSync(script2, check2);
         const [sh2, args2] =
           process.platform === 'win32'
@@ -123,7 +123,7 @@ async function createWindow() {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#1f1f1f',
-    title: 'Bàn làm việc',
+    title: 'VsScience',
     autoHideMenuBar: true,
     webPreferences: { contextIsolation: true, sandbox: true },
   });
@@ -146,7 +146,7 @@ async function createWindow() {
 
 if (smokeArg) {
   // Kiểm tra không đụng tới dữ liệu thật: dữ liệu app và thư mục làm việc đều ở thư mục tạm.
-  const tmp = mkdtempSync(path.join(tmpdir(), 'banlamviec-smoke-'));
+  const tmp = mkdtempSync(path.join(tmpdir(), 'vsscience-smoke-'));
   app.setPath('userData', path.join(tmp, 'userData'));
   process.env.IDE_CONFIG_DIR = path.join(tmp, 'config');
   process.env.IDE_WORKSPACE = mkdtempSync(path.join(tmp, 'ws-'));
@@ -166,7 +166,7 @@ if (smokeArg) {
     try {
       await createWindow();
     } catch (err) {
-      dialog.showErrorBox('Không khởi động được Bàn làm việc', String((err as Error)?.message ?? err));
+      dialog.showErrorBox('Không khởi động được VsScience', String((err as Error)?.message ?? err));
       app.quit();
     }
   });

@@ -324,7 +324,7 @@ function PermissionCard({
         <div className="permission-outside">
           <span className="codicon codicon-warning" />
           <div>
-            Cần bạn cho phép vì {outside.length > 1 ? 'các file này nằm' : 'file này nằm'} ngoài thư mục đang mở:
+            Cần bạn cho phép vì thao tác này đụng tới ngoài thư mục đang mở:
             <ul>
               {outside.slice(0, 5).map((p) => (
                 <li key={p}>{nfc(p)}</li>

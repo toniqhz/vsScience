@@ -1,4 +1,4 @@
-# Bàn làm việc (tên tạm)
+# VsScience
 
 App quản lý và làm việc với file Word, Excel, PDF có trợ lý Claude, giao diện kiểu VS Code cho người không làm kỹ thuật. Xem bối cảnh và quyết định kiến trúc trong `NOTES.md`.
 
@@ -97,11 +97,11 @@ App chạy được trên máy chưa cài gì:
 Kiểm tra bản đóng gói mà không mở cửa sổ (dùng thư mục tạm, không đụng dữ liệu thật):
 
 ```bash
-BanLamViec.exe --smoke-test=C:\đường\dẫn\ket-qua.json
+VsScience.exe --smoke-test=C:\đường\dẫn\ket-qua.json
 ```
 
 Chạy từ terminal của VS Code thì bỏ biến `ELECTRON_RUN_AS_NODE` trước, nếu không Electron chạy như Node.
 
 Chưa ký số: Windows SmartScreen sẽ cảnh báo (bấm "More info" → "Run anyway"); macOS chặn app tải từ mạng
-(chuột phải → Open, hoặc `xattr -dr com.apple.quarantine "/Applications/Bàn làm việc.app"`).
+(chuột phải → Open, hoặc `xattr -dr com.apple.quarantine "/Applications/VsScience.app"`).
 

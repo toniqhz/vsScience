@@ -156,6 +156,30 @@ describe('AgentSession', () => {
     await session.close();
   });
 
+  it('thư mục nháp của app: ghi rõ trong hướng dẫn cho Claude, chạy script trong đó không cần hỏi', async () => {
+    const scratchRoot = mkdtempSync(path.join(tmpdir(), 'nhap-app-'));
+    const decisions: unknown[] = [];
+    let append = '';
+    const fake = fakeQueryFn(async function* (_user, options) {
+      append = (options.systemPrompt as { append: string }).append;
+      const scratch = /thư mục nháp `([^`]+)`/.exec(append)![1]!;
+      const ask = (command: string) =>
+        options.canUseTool!('Bash', { command }, { signal: new AbortController().signal, suggestions: [] } as never);
+      decisions.push(await ask(`python "${scratch}/sua_diem.py" "${CWD}/bang-diem.xlsx"`));
+      yield m({ type: 'result', subtype: 'success', is_error: false, duration_ms: 1 });
+    });
+    const events: AgentEvent[] = [];
+    const session = new AgentSession({ cwd: () => CWD, claudeBin: '/khong/can', emit: (e) => events.push(e), queryFn: fake.fn, scratchRoot });
+    await session.send('Sửa điểm', [], { ...SETTINGS, mode: 'auto' });
+    await until(() => decisions.length === 1);
+    expect(append).toContain(`Thư mục làm việc \`${CWD}\``);
+    expect(append).toMatch(new RegExp(`thư mục nháp \`${scratchRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/[0-9a-f]{12}\``));
+    expect(decisions[0]).toMatchObject({ behavior: 'allow' });
+    expect(events.some((e) => e.kind === 'permission')).toBe(false);
+    await session.close();
+    rmSync(scratchRoot, { recursive: true, force: true });
+  });
+
   it('chế độ Hỏi trước: lệnh trong thư mục vẫn hỏi như cũ', async () => {
     const { session, events } = setup(async function* (_user, options) {
       await options.canUseTool!('Bash', { command: 'ls' }, { signal: new AbortController().signal, suggestions: [] } as never);

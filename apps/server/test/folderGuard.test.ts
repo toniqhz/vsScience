@@ -40,6 +40,14 @@ describe('FolderGuard', () => {
     expect(bash(`python3 ${SCRATCH}/sach.py`)).toEqual([]);
   });
 
+  it('lệnh cài phần mềm luôn phải hỏi, dù không có đường dẫn', () => {
+    for (const cmd of ['pip3 install pandas openpyxl -q', 'python3 -m pip install openpyxl', 'cd x && npm install -g foo', 'brew install libreoffice']) {
+      expect(bash(cmd)).toEqual(['Cài phần mềm hoặc thư viện lên máy']);
+    }
+    expect(bash('python3 -c "import openpyxl"')).toEqual([]);
+    expect(bash('pip list')).toEqual([]);
+  });
+
   it('công cụ file: kiểm tra file_path / path', () => {
     expect(guard.outside('Edit', { file_path: `${WS}/Đề.docx` }, WS)).toEqual([]);
     expect(guard.outside('Write', { file_path: `${SCRATCH}/tam.py` }, WS)).toEqual([]);
@@ -67,7 +75,7 @@ describe('FolderGuard trên Windows (PowerShell)', () => {
     TEMP: 'C:\\Users\\TUANNG~1\\AppData\\Local\\Temp',
     APPDATA: 'C:\\Users\\Tuan Nguyen\\AppData\\Roaming',
   };
-  const PY = 'C:\\Users\\Tuan Nguyen\\AppData\\Local\\Programs\\BanLamViec\\resources\\python';
+  const PY = 'C:\\Users\\Tuan Nguyen\\AppData\\Local\\Programs\\VsScience\\resources\\python';
   const scratch = claudeScratchRoot(WIN_WS, 'win32', env.TEMP);
   const g = new FolderGuard(() => [WIN_WS, scratch], { platform: 'win32', env, home: env.USERPROFILE, extraAllowed: [PY] });
   const ps = (command: string) => g.outside('PowerShell', { command }, WIN_WS);
@@ -85,6 +93,12 @@ describe('FolderGuard trên Windows (PowerShell)', () => {
     expect(ps('cmd /c dir /s /b *.pdf')).toEqual([]);
     expect(ps(`Copy-Item "Đề thi\\Đề 1.docx" "$env:TEMP\\claude\\C--Users-Tuan-Nguyen-OneDrive-Desktop-cham-thi\\s\\scratchpad\\"`)).toEqual([]);
     expect(ps('& "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE" /q')).toEqual([]);
+  });
+
+  it('PowerShell: py -m pip install, winget install, Install-Module cũng phải hỏi', () => {
+    expect(ps('py -m pip install openpyxl')).toEqual(['Cài phần mềm hoặc thư viện lên máy']);
+    expect(ps('winget install LibreOffice')).toEqual(['Cài phần mềm hoặc thư viện lên máy']);
+    expect(ps('Install-Module ImportExcel -Scope CurrentUser')).toEqual(['Cài phần mềm hoặc thư viện lên máy']);
   });
 
   it('đụng tới file ngoài thư mục: báo đường dẫn để hỏi lại', () => {

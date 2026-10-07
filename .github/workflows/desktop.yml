@@ -28,7 +28,7 @@ jobs:
       - run: pnpm --filter @ide/desktop dist:${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         with:
-          name: BanLamViec-${{ matrix.target }}
+          name: VsScience-${{ matrix.target }}
           # Chỉ bộ cài (.exe / .dmg); không kèm thư mục chạy thẳng hay blockmap.
           path: |
             apps/desktop/release/*.exe

@@ -20,7 +20,7 @@ export interface ClaudeProfile {
  * Hồ sơ được viết cho project Claude Code thông thường (có git, có cấu trúc thư mục phân tích
  * dữ liệu). Phần này điều chỉnh cho app: đặt sau cùng để được ưu tiên.
  */
-const APP_ADJUSTMENTS = `# Điều chỉnh khi chạy trong app Bàn làm việc (ưu tiên hơn các mục ở trên)
+const APP_ADJUSTMENTS = `# Điều chỉnh khi chạy trong app VsScience (ưu tiên hơn các mục ở trên)
 
 - Không dùng git trong thư mục làm việc: không chạy git init, git add hay git commit. App tự lưu một bản trước mỗi lượt của bạn. Thay cho mục "Git": sau mỗi kết quả quan trọng, nhắc người dùng bấm "Lưu bản" ở mục Thay đổi (thanh bên trái) kèm một dòng mô tả gợi ý.
 - Cấu trúc thư mục (data/raw, data/processed, analysis, figures, reports) chỉ áp dụng khi thư mục làm việc đã có cấu trúc đó, hoặc người dùng muốn lập một project phân tích dữ liệu. Với thư mục sách, bài báo, đề thi thông thường: không tự tạo các thư mục này; script phụ để xử lý file đặt ở scratchpad.

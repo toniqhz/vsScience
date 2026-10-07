@@ -1,5 +1,6 @@
-import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   deleteSession as sdkDeleteSession,
@@ -77,12 +78,45 @@ const MODE_TO_PERMISSION: Record<AgentMode, PermissionMode> = {
 };
 
 /** Hướng dẫn thêm vào system prompt của Claude Code cho người dùng không làm kỹ thuật. */
-const SYSTEM_APPEND = `Người dùng là người đọc sách, đọc báo khoa học và soạn đề thi — không phải lập trình viên.
+function systemAppend(cwd: string, scratch: string | null): string {
+  const tmp = scratch
+    ? `script và file tạm đặt trong thư mục nháp \`${scratch}\` (đã tạo sẵn, dùng tự do). Không dùng %TEMP%, /tmp hay thư mục nào khác cho file tạm.`
+    : 'script và file tạm đặt trong thư mục scratchpad của bạn.';
+  return `Người dùng là người đọc sách, đọc báo khoa học và soạn đề thi — không phải lập trình viên.
 - Luôn trả lời bằng tiếng Việt, ngắn gọn, dễ hiểu.
 - Không đưa mã nguồn hay câu lệnh vào câu trả lời trừ khi người dùng hỏi. Khi cần chạy lệnh hay script để xử lý file, cứ làm rồi chỉ báo kết quả.
 - Khi trích dẫn tài liệu PDF, ghi rõ số trang.
-- Thư mục làm việc chứa tài liệu PDF, Word, Excel của người dùng. Không để file tạm hay file rác trong đó; script và file tạm đặt trong thư mục scratchpad của bạn.
-- Chỉ đọc, sửa, chạy lệnh với file trong thư mục làm việc và scratchpad. Nếu thật sự cần file ở ngoài, nói rõ với người dùng cần file nào và vì sao; người dùng sẽ được hỏi cho phép.`;
+- Thư mục làm việc \`${cwd}\` chứa tài liệu PDF, Word, Excel của người dùng. Không để file tạm hay file rác trong đó; ${tmp}
+- Chỉ đọc, sửa, chạy lệnh với file trong thư mục làm việc và thư mục nháp. Nếu thật sự cần file ở ngoài, nói rõ với người dùng cần file nào và vì sao; người dùng sẽ được hỏi cho phép.`;
+}
+
+/** Thư mục nháp riêng cho mỗi thư mục làm việc, nằm trong thư mục dữ liệu của app. */
+function scratchFor(root: string | undefined, cwd: string): string | null {
+  if (!root) return null;
+  const dir = path.join(root, createHash('sha1').update(cwd).digest('hex').slice(0, 12));
+  try {
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Windows hay viết thư mục dưới dạng tên ngắn 8.3 (C:\Users\TUANNG~1\…) hoặc tên đầy đủ
+ * (C:\Users\Tuan Nguyen\…). Thêm dạng đầy đủ của mỗi thư mục đã tồn tại để so khớp được cả hai.
+ */
+function withLongForms(dirs: string[]): string[] {
+  const out = new Set(dirs);
+  for (const d of dirs) {
+    try {
+      out.add(realpathSync.native(d));
+    } catch {
+      // chưa tồn tại
+    }
+  }
+  return [...out];
+}
 
 const OUTPUT_LIMIT = 4000;
 /** Báo cáo của trợ lý phụ (ví dụ phản biện) được hiện dạng văn bản nên giữ dài hơn. */
@@ -308,6 +342,8 @@ export class AgentSession {
       onSessionsChanged?: () => void;
       /** Chạy trước mỗi lượt Claude (ví dụ tự lưu bản). Lỗi ở đây không chặn lượt. */
       beforeTurn?: (text: string) => Promise<void>;
+      /** Thư mục gốc chứa thư mục nháp của mỗi thư mục làm việc (script tạm của Claude). */
+      scratchRoot?: string;
       /** Hồ sơ Claude dựng sẵn, đọc lại mỗi khi bắt đầu phiên. */
       profile?: () => ClaudeProfile | null;
       queryFn?: QueryFn;
@@ -500,10 +536,14 @@ export class AgentSession {
 
   #start(settings: AgentSettings, cwd: string) {
     const input = new InputQueue();
-    // Phạm vi tự do: thư mục làm việc + thư mục scratchpad mà Claude Code cấp cho mỗi phiên.
+    // Phạm vi tự do: thư mục làm việc, thư mục nháp của app, scratchpad mà Claude Code cấp cho mỗi phiên
+    // (tính theo cả dạng tên ngắn lẫn tên đầy đủ của thư mục Temp trên Windows).
     // Python và Claude CLI đi kèm app cũng được dùng tự do.
-    const extraAllowed = [pythonHome(), path.dirname(this.opts.claudeBin)].filter((d): d is string => !!d && path.isAbsolute(d));
-    const guard = new FolderGuard(() => [cwd, claudeScratchRoot(cwd)], { extraAllowed });
+    const scratch = scratchFor(this.opts.scratchRoot, cwd);
+    const tempBases = withLongForms([tmpdir()]);
+    const roots = withLongForms([cwd, ...(scratch ? [scratch] : [])]).concat(tempBases.map((t) => claudeScratchRoot(cwd, process.platform, t)));
+    const extraAllowed = withLongForms([pythonHome(), path.dirname(this.opts.claudeBin)].filter((d): d is string => !!d && path.isAbsolute(d)));
+    const guard = new FolderGuard(() => roots, { extraAllowed });
     const canUseTool: CanUseTool = (toolName, toolInput, { signal, suggestions }) =>
       new Promise<PermissionResult>((resolve) => {
         const outside = FolderGuard.touchesFiles(toolName) ? guard.outside(toolName, toolInput, cwd) : [];
@@ -541,7 +581,7 @@ export class AgentSession {
       includePartialMessages: true,
       pathToClaudeCodeExecutable: this.opts.claudeBin,
       env: cliEnv({
-        CLAUDE_AGENT_SDK_CLIENT_APP: 'ban-lam-viec/0.1',
+        CLAUDE_AGENT_SDK_CLIENT_APP: 'vsscience/0.1',
         // App chưa có giao diện cho tác vụ nền: subagent (ví dụ phản biện) và lệnh dài phải chạy xong
         // trong lượt, để Claude có kết quả trước khi trả lời và không xin quyền sau khi lượt đã kết thúc.
         CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
@@ -550,7 +590,7 @@ export class AgentSession {
       systemPrompt: {
         type: 'preset',
         preset: 'claude_code',
-        append: [SYSTEM_APPEND, runtimePrompt(), profile?.systemAppend].filter(Boolean).join('\n\n'),
+        append: [systemAppend(cwd, scratch), runtimePrompt(), profile?.systemAppend].filter(Boolean).join('\n\n'),
       },
       ...(profile && Object.keys(profile.agents).length ? { agents: profile.agents } : {}),
       // Câu hỏi nhiều lựa chọn cần giao diện riêng — chưa hỗ trợ.

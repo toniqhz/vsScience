@@ -8,7 +8,7 @@ import { comparableLines } from './docText.js';
 import { PathError, fileKind, isHiddenName, resolveInWorkspace } from './paths.js';
 import { diffLines } from './textDiff.js';
 
-const AUTHOR = { name: 'Bàn làm việc', email: 'ban-lam-viec@localhost' };
+const AUTHOR = { name: 'VsScience', email: 'vsscience@localhost' };
 /** File lớn hơn mức này không đưa vào bản lưu. */
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 

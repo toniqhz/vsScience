@@ -88,6 +88,33 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
   }, [agent.seq]);
 
+  // Giữ bám đáy cả khi kích thước đổi mà không có sự kiện mới: ô chat giãn ra khi gõ nhiều dòng,
+  // dải hạn mức hiện dưới ô chat, thẻ xin quyền vẽ xong sau. Không có đoạn này, phần cuối hội thoại
+  // bị khuất sau ô chat.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const stick = () => {
+      if (stickToBottom.current) el.scrollTop = el.scrollHeight;
+    };
+    const ro = new ResizeObserver(stick);
+    ro.observe(el);
+    const observeContent = () => {
+      for (const child of Array.from(el.children)) ro.observe(child);
+    };
+    observeContent();
+    // Nội dung bên trong được thay (màn hình chào ↔ hội thoại): theo dõi phần tử mới.
+    const mo = new MutationObserver(() => {
+      observeContent();
+      stick();
+    });
+    mo.observe(el, { childList: true });
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
+  }, []);
+
   const local = useCallback((node: LocalNode) => dispatch({ type: 'local', node }), []);
   const fail = useCallback((e: Error) => local({ kind: 'notice', tone: 'warn', text: e.message }), [local]);
 

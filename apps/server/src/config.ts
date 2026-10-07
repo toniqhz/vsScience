@@ -20,6 +20,8 @@ export interface Config {
   claudeBin: string;
   /** Nơi chứa kho git của bản lưu (ngoài thư mục làm việc). */
   snapshotsDir: string;
+  /** Thư mục nháp cho script tạm của Claude (mỗi thư mục làm việc một thư mục con). */
+  scratchDir: string;
   /** Địa chỉ người dùng mở trong trình duyệt (dev: cổng Vite). */
   openUrl: string;
   /** Thư mục bản build của web; phục vụ tĩnh nếu tồn tại. */
@@ -93,6 +95,7 @@ export function loadConfig(): Config {
     statePath,
     claudeBin: resolveClaudeBin(),
     snapshotsDir: path.join(configDir, 'snapshots'),
+    scratchDir: path.join(configDir, 'scratch'),
     // `pnpm dev` chạy kèm Vite ở cổng 5173; giao diện được phục vụ từ đó.
     openUrl:
       process.env.IDE_OPEN_URL ??
