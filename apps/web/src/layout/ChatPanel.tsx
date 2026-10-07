@@ -1,0 +1,247 @@
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import type { AuthStatus, ClaudeProfileInfo } from '@ide/shared';
+import { api } from '../api/client';
+import { useWorkspace } from '../api/workspace';
+import { agentReducer, initialAgentState, type LocalNode } from '../chat/agentStore';
+import { COMMANDS, type CommandAction } from '../chat/commands';
+import { Composer, type ComposerMenu } from '../chat/Composer';
+import { LoginDialog, planLabel } from '../chat/LoginDialog';
+import { DEFAULT_MODEL, findModel, type Effort, type PermissionMode } from '../chat/models';
+import { Transcript, agentLabel } from '../chat/Transcript';
+
+const SUGGESTIONS = [
+  { icon: 'codicon-checklist', title: 'Soạn câu trắc nghiệm', prompt: '/soan-trac-nghiem' },
+  { icon: 'codicon-book', title: 'Tóm tắt tài liệu', prompt: '/tom-tat' },
+  { icon: 'codicon-symbol-array', title: 'Trộn mã đề', prompt: '/tron-de' },
+  { icon: 'codicon-question', title: 'Xem các lệnh', prompt: '/help' },
+];
+
+const PREFS_KEY = 'ide.chat.prefs';
+type Prefs = { model: string; effort: Effort | null; mode: PermissionMode };
+
+function loadPrefs(): Prefs {
+  try {
+    const p = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '') as Partial<Prefs>;
+    const model = findModel(p.model ?? '');
+    const effort = p.effort && model.efforts.includes(p.effort) ? p.effort : model.defaultEffort;
+    const mode = p.mode === 'auto' || p.mode === 'plan' ? p.mode : 'ask';
+    return { model: model.id, effort, mode };
+  } catch {
+    return { model: DEFAULT_MODEL.id, effort: DEFAULT_MODEL.defaultEffort, mode: 'ask' };
+  }
+}
+
+/**
+ * Khu vực làm việc chính với Claude. Phiên trợ lý chạy ở server (Claude Agent SDK);
+ * hội thoại dựng từ luồng sự kiện qua WebSocket, nên tải lại trang vẫn giữ nguyên.
+ */
+export function ChatPanel({ activePath, onOpenFile }: { activePath: string | null; onOpenFile: (path: string) => void }) {
+  const { onAgent } = useWorkspace();
+  const [auth, setAuth] = useState<AuthStatus | null>(null);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
+  const [menu, setMenu] = useState<ComposerMenu>(null);
+  const [agent, dispatch] = useReducer(agentReducer, initialAgentState);
+  /** Yêu cầu điền chữ vào ô chat (từ thẻ gợi ý) và đưa con trỏ vào đó. */
+  const [insertRequest, setInsertRequest] = useState<{ text: string; n: number } | null>(null);
+  const focusComposer = (text = '') => setInsertRequest((r) => ({ text, n: (r?.n ?? 0) + 1 }));
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottom = useRef(true);
+
+  const model = findModel(prefs.model);
+  const contextTotal = agent.context?.max ?? model.contextWindow;
+
+  useEffect(() => onAgent((msg) => dispatch(msg)), [onAgent]);
+
+  const [profile, setProfile] = useState<ClaudeProfileInfo | null>(null);
+  useEffect(() => {
+    api.agentProfile().then(setProfile, () => setProfile(null));
+  }, []);
+
+  useEffect(() => {
+    api
+      .authStatus()
+      .then(setAuth)
+      .catch(() => setAuth({ loggedIn: false, method: 'none', email: null, plan: null, orgName: null }));
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    } catch {
+      // không lưu được lựa chọn — vẫn dùng trong phiên này
+    }
+  }, [prefs]);
+
+  // Tự cuộn theo câu trả lời, trừ khi người dùng đã cuộn lên đọc lại.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
+  }, [agent.seq]);
+
+  const local = useCallback((node: LocalNode) => dispatch({ type: 'local', node }), []);
+  const fail = useCallback((e: Error) => local({ kind: 'notice', tone: 'warn', text: e.message }), [local]);
+
+  const send = (text: string, files: string[] = []) => {
+    stickToBottom.current = true;
+    api.agentSend({ text, files, model: prefs.model, effort: prefs.effort, mode: prefs.mode }).catch(fail);
+  };
+
+  const runCommand = (action: CommandAction) => {
+    switch (action) {
+      case 'clear':
+        api.agentClear().catch(fail);
+        return;
+      case 'compact':
+        if (!agent.context) {
+          local({ kind: 'notice', tone: 'info', text: 'Chưa có hội thoại để tóm gọn.' });
+          return;
+        }
+        // Lệnh /compact của Claude Code: tóm gọn hội thoại để giải phóng ngữ cảnh.
+        send('/compact');
+        return;
+      case 'context':
+        api
+          .agentContext()
+          .then((usage) => local({ kind: 'context', usage: usage ?? agent.context, modelName: model.name, fallbackMax: model.contextWindow }))
+          .catch(fail);
+        return;
+      case 'model':
+        setMenu('model');
+        return;
+      case 'mode':
+        setMenu('mode');
+        return;
+      case 'login':
+        setLoginOpen(true);
+        return;
+      case 'logout':
+        // Phiên đăng nhập dùng chung với Claude Code, nên đăng xuất ở đây cũng đăng xuất plugin VS Code.
+        if (!window.confirm('Đăng xuất Claude sẽ đăng xuất cả Claude Code (plugin VS Code) trên máy này. Tiếp tục?')) return;
+        api
+          .logout()
+          .then((s) => {
+            setAuth(s);
+            local({ kind: 'notice', tone: 'info', text: 'Đã đăng xuất tài khoản Claude trên máy này.' });
+          })
+          .catch(fail);
+        return;
+      case 'help':
+        local({ kind: 'help' });
+        return;
+    }
+  };
+
+  const connected = !!auth?.loggedIn;
+
+  const onConnected = useCallback(
+    (s: AuthStatus) => {
+      setAuth(s);
+      setLoginOpen(false);
+      const plan = s.plan ? ` · gói ${planLabel(s.plan)}` : '';
+      local({ kind: 'notice', tone: 'info', text: `Đã đăng nhập Claude: ${s.email ?? 'tài khoản Claude'}${plan}.` });
+      setInsertRequest((r) => ({ text: '', n: (r?.n ?? 0) + 1 }));
+    },
+    [local],
+  );
+
+  return (
+    <div className="chat-panel">
+      <div
+        className="chat-scroll"
+        ref={scrollRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+        }}
+      >
+        {agent.items.length === 0 ? (
+          <div className="chat-column chat-welcome">
+            <span className="codicon codicon-sparkle chat-logo" />
+            <h1>Hôm nay bạn muốn làm gì?</h1>
+            <p className="chat-subtitle">
+              Claude đọc tài liệu trong thư mục của bạn, soạn câu hỏi kèm số trang và sửa đề thi. Gõ <kbd>@</kbd> để nhắc
+              tới file, <kbd>/</kbd> để gọi lệnh.
+            </p>
+            {profile && <ProfileBadge profile={profile} />}
+            <div className="suggestions">
+              {SUGGESTIONS.map((s) => {
+                const cmd = COMMANDS.find((c) => `/${c.name}` === s.prompt);
+                return (
+                  <button
+                    key={s.title}
+                    className="suggestion"
+                    onClick={() => {
+                      if (!connected) return setLoginOpen(true);
+                      if (cmd?.kind === 'action') runCommand(cmd.action);
+                      else focusComposer(cmd?.kind === 'prompt' ? cmd.template : '');
+                    }}
+                  >
+                    <span className={`codicon ${s.icon} suggestion-icon`} />
+                    <span className="suggestion-title">{s.title}</span>
+                    <span className="suggestion-prompt">{cmd?.description}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <Transcript
+            items={agent.items}
+            running={agent.running}
+            onOpenFile={onOpenFile}
+            onPermission={(id, allow, always) => api.agentPermission(id, allow, always).catch(fail)}
+          />
+        )}
+      </div>
+      <div className="chat-column composer-wrap">
+        <Composer
+          activePath={activePath}
+          model={model}
+          effort={prefs.effort}
+          mode={prefs.mode}
+          usedTokens={agent.context?.used ?? 0}
+          contextTotal={contextTotal}
+          connected={connected}
+          running={agent.running}
+          onStop={() => api.agentInterrupt().catch(fail)}
+          menu={menu}
+          insertRequest={insertRequest}
+          onMenuChange={setMenu}
+          onModelChange={(id) => {
+            const m = findModel(id);
+            setPrefs((p) => ({
+              ...p,
+              model: m.id,
+              effort: p.effort && m.efforts.includes(p.effort) ? p.effort : m.defaultEffort,
+            }));
+          }}
+          onEffortChange={(effort) => setPrefs((p) => ({ ...p, effort }))}
+          onModeChange={(mode) => setPrefs((p) => ({ ...p, mode }))}
+          onRequireLogin={() => setLoginOpen(true)}
+          onCommand={runCommand}
+          onUnknownCommand={(name) =>
+            local({ kind: 'notice', tone: 'warn', text: `Không có lệnh /${name}. Gõ /help để xem danh sách lệnh.` })
+          }
+          onSubmit={send}
+        />
+      </div>
+      {loginOpen && <LoginDialog status={auth} onClose={() => setLoginOpen(false)} onConnected={onConnected} />}
+    </div>
+  );
+}
+
+/** Cho biết Claude đang chạy với hồ sơ dựng sẵn nào (giọng trả lời, quy trình, subagent). */
+function ProfileBadge({ profile }: { profile: ClaudeProfileInfo }) {
+  const parts = [
+    profile.outputStyle && `Giọng: ${profile.outputStyle}`,
+    profile.hasInstructions && 'quy trình lập luận khoa học',
+    ...profile.agents.map((a) => `trợ lý ${agentLabel(a.name)}`),
+  ].filter(Boolean);
+  return (
+    <div className="profile-badge" title={`Hồ sơ Claude: ${profile.dir}`}>
+      <span className="codicon codicon-beaker" />
+      <span>{parts.join(' · ')}</span>
+    </div>
+  );
+}

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+# Dữ liệu thử nghiệm khi chạy dev (mặc định IDE_WORKSPACE)
+demo-workspace/
+# Tài nguyên pdf.js được chép từ node_modules (scripts/copy-pdfjs-assets.mjs)
+apps/web/public/pdfjs/

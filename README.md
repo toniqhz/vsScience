@@ -1,0 +1,61 @@
+# Bàn làm việc (tên tạm)
+
+App quản lý và làm việc với file Word, Excel, PDF có trợ lý Claude, giao diện kiểu VS Code cho người không làm kỹ thuật. Xem bối cảnh và quyết định kiến trúc trong `NOTES.md`.
+
+## Cấu trúc
+
+- `apps/server` — Node + Fastify. API cây thư mục, đọc file, WebSocket báo thay đổi (chokidar). Chỉ nghe ở `127.0.0.1`, cần token.
+- `apps/web` — Vite + React. Bố cục allotment + dockview, cây file react-arborist, xem PDF bằng pdf.js.
+- `packages/shared` — kiểu dữ liệu dùng chung (chỉ type).
+
+## Chạy khi phát triển
+
+Cần Node ≥ 20.19 và pnpm (`corepack enable pnpm`).
+
+```sh
+pnpm install
+pnpm dev                                  # server :4317 + Vite :5173
+IDE_WORKSPACE=~/Tài-liệu pnpm dev         # chọn thư mục làm việc khác
+```
+
+Mở đường link server in ra (`http://127.0.0.1:5173/?token=…`). Token lưu ở `~/.config/ide/token`, giữ nguyên qua các lần khởi động.
+
+Mặc định thư mục làm việc là `demo-workspace/` (không đưa vào git).
+
+## Đăng nhập Claude
+
+App dùng tài khoản Claude (gói Pro/Max) qua Claude Code CLI đi kèm Agent SDK, giống plugin VS Code: bấm vào ô chat → "Đăng nhập bằng tài khoản Claude" → cấp quyền trên claude.ai. Phiên đăng nhập lưu ở `~/.claude/` và dùng chung với Claude Code trên máy (đã đăng nhập plugin VS Code thì app dùng được ngay). `ANTHROPIC_API_KEY` bị bỏ qua khi chạy CLI để luôn dùng gói thuê bao.
+
+App chỉ dành cho dùng cá nhân trên máy mình: Anthropic không cho sản phẩm bên thứ ba cung cấp đăng nhập Claude.ai cho người khác nếu chưa được duyệt.
+
+## Biến môi trường
+
+| Biến | Ý nghĩa |
+|---|---|
+| `IDE_WORKSPACE` | Thư mục làm việc |
+| `IDE_PORT` | Cổng server (mặc định 4317) |
+| `IDE_TOKEN` | Ghi đè token |
+| `IDE_POLLING=1` | Theo dõi file bằng polling — cần khi thư mục nằm trên `/mnt/c` (WSL) hoặc ổ mạng |
+| `IDE_CLAUDE_BIN` | Dùng Claude Code CLI khác thay cho bản đi kèm Agent SDK |
+| `IDE_CLAUDE_PROFILE` | Thư mục hồ sơ Claude khác (mặc định `claude-code-khoa-hoc/claude-code-khoa-hoc/`); để rỗng để tắt |
+
+## Hồ sơ Claude (khoa học)
+
+Mỗi phiên Claude tự nạp hồ sơ trong `claude-code-khoa-hoc/claude-code-khoa-hoc/`:
+
+- `.claude/output-styles/*.md`: giọng trả lời (hiện là "Nhà khoa học"), ghép vào system prompt.
+- `CLAUDE.md`: quy trình lập luận khoa học, phản biện trước khi báo cáo, cấu trúc báo cáo. Ghép vào system prompt.
+- `.claude/agents/*.md`: subagent (hiện là `reviewer`), đăng ký qua tùy chọn `agents` của Agent SDK.
+
+Server thêm một đoạn điều chỉnh cho app (`apps/server/src/profile.ts`): không dùng git trong thư mục làm việc
+(thay bằng nhắc bấm "Lưu bản"), chỉ dùng cấu trúc `data/ analysis/ …` khi thư mục đã có, việc đơn giản không cần quy trình đầy đủ.
+Sửa file trong hồ sơ là có hiệu lực ở phiên Claude tiếp theo. CLAUDE.md riêng trong thư mục làm việc vẫn được nạp như Claude Code.
+Tác vụ nền bị tắt (`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`) để phản biện chạy xong trước khi Claude trả lời.
+
+## Kiểm tra
+
+```sh
+pnpm typecheck
+pnpm test        # test server: token, Host, chặn đường dẫn ra ngoài, lọc cây
+pnpm build && pnpm start   # server phục vụ luôn bản build của web ở :4317
+```
