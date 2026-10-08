@@ -18,10 +18,10 @@ import { useWorkbench, type SnapshotRef } from '../workbenchContext';
 
 export type FilePanelParams = { path: string; kind: FileKind };
 export type DiffPanelParams = { path: string; snapshot?: SnapshotRef };
-export type ArtifactPanelParams = { artifactId: string; title: string; url: string | null };
+export type ArtifactPanelParams = { artifactId: string; title: string; url: string | null; local: boolean; doc: boolean };
 
 function ArtifactPanel({ params }: IDockviewPanelProps<ArtifactPanelParams>) {
-  return <ArtifactViewer id={params.artifactId} title={params.title} url={params.url} />;
+  return <ArtifactViewer id={params.artifactId} title={params.title} url={params.url} local={params.local} doc={params.doc} />;
 }
 
 function FilePanel({ params }: IDockviewPanelProps<FilePanelParams>) {

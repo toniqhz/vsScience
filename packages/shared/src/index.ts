@@ -217,6 +217,10 @@ export interface ArtifactInfo {
   source: 'file' | 'published';
   /** Đường dẫn tương đối của file (source 'file'). */
   path?: string;
+  /** Trang đã đăng: 'page' là trang HTML (có bản sao trên máy), 'doc' là tài liệu Claude Docs (chỉ có trên claude.ai). */
+  kind?: 'page' | 'doc';
+  /** Có bản sao HTML trên máy để xem ngay trong app. */
+  local?: boolean;
   title: string;
   description?: string;
   /** Link trên claude.ai; null nếu không đọc được từ kết quả. */

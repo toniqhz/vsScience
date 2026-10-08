@@ -3298,3 +3298,8 @@ kbd {
 .kind-image {
   color: #c49bdb;
 }
+
+/* Nút dạng link (Mở trên claude.ai) không gạch chân. */
+a.btn {
+  text-decoration: none;
+}

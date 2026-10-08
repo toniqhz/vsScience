@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { ArtifactStore, artifactTitle, artifactUrl, createdFilesFromMessages } from '../src/artifacts.js';
+import { ArtifactStore, artifactTitle, artifactUrl, artifactsFromMessages } from '../src/artifacts.js';
 
 const dir = mkdtempSync(path.join(tmpdir(), 'artifacts-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -61,13 +61,29 @@ describe('ArtifactStore', () => {
       { message: { content: [{ type: 'tool_use', id: 'c', name: 'Write', input: { file_path: '/tmp/x.md' } }] } },
       { message: { content: [{ type: 'tool_result', tool_use_id: 'c', content: 'File created successfully' }] } },
     ];
-    expect(createdFilesFromMessages(ws, messages)).toEqual(['tom-tat.md']);
+    expect(artifactsFromMessages(ws, messages).files).toEqual(['tom-tat.md']);
     const store = new ArtifactStore(path.join(dir, 'kho-cu'));
     let scans = 0;
-    const find = async () => (scans++, createdFilesFromMessages(ws, messages));
+    const find = async () => (scans++, artifactsFromMessages(ws, messages));
     expect(await store.backfill(ws, find)).toBe(true);
     expect(await store.backfill(ws, find)).toBe(false);
     expect(scans).toBe(1);
     expect((await store.list(ws)).map((a) => a.path)).toEqual(['tom-tat.md']);
+  });
+
+  it('link tài liệu Claude Docs trong kết quả công cụ: ghi nhận một lần, có tiêu đề', async () => {
+    const url = 'https://claude.ai/code/artifact/da850ef8-5abb-4fa1-bba2-d02fe2bbe461';
+    const messages = [
+      { message: { content: [{ type: 'tool_use', id: 'd', name: 'mcp__claude_ai_Claude_Docs__batch', input: { container: { kind: 'project', create: { name: 'Tóm tắt trang 20–25' } } } }] } },
+      { message: { content: [{ type: 'tool_result', tool_use_id: 'd', content: [{ type: 'text', text: `{"verdict":"allow","link":"${url}"}` }] }] } },
+      { message: { content: [{ type: 'tool_use', id: 'e', name: 'mcp__claude_ai_Claude_Docs__update', input: {} }] } },
+      { message: { content: [{ type: 'tool_result', tool_use_id: 'e', content: `ok ${url}` }] } },
+    ];
+    const { links } = artifactsFromMessages('/ws', messages);
+    expect(links).toEqual([{ url, title: 'Tóm tắt trang 20–25', doc: true }]);
+    const store = new ArtifactStore(path.join(dir, 'kho-doc'));
+    expect(await store.recordLinks('/ws/doc', links)).toBe(true);
+    expect(await store.recordLinks('/ws/doc', [{ url, title: null, doc: true }])).toBe(false);
+    expect(await store.list('/ws/doc')).toMatchObject([{ source: 'published', kind: 'doc', local: false, title: 'Tóm tắt trang 20–25', url }]);
   });
 });

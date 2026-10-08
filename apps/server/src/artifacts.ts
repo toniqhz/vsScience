@@ -11,6 +11,28 @@ export function artifactUrl(output: string): string | null {
   return ARTIFACT_URL.exec(output)?.[0] ?? null;
 }
 
+/** Tiêu đề lấy từ đầu vào công cụ: tên tài liệu Claude Docs, hoặc title/name nếu có. */
+export function linkTitle(input: Record<string, unknown>): string | null {
+  const create = (input.container as { create?: { name?: unknown } } | undefined)?.create;
+  for (const v of [create?.name, input.title, input.name]) if (typeof v === 'string' && v.trim()) return v.trim();
+  return null;
+}
+
+/** Công cụ tạo tài liệu Claude Docs (kết nối claude.ai) thay vì trang HTML. */
+export function isDocsTool(toolName: string): boolean {
+  return /Claude_Docs/i.test(toolName);
+}
+
+/** Đổi khi cách quét lịch sử thay đổi: thư mục đã quét bằng cách cũ sẽ được quét lại một lần. */
+const BACKFILL_VERSION = 2;
+
+export interface ArtifactLink {
+  url: string;
+  title: string | null;
+  doc: boolean;
+  time?: number;
+}
+
 /** Tiêu đề trang: thẻ <title> trong HTML, nếu không có thì tên file. */
 export function artifactTitle(html: string, filePath: string, given?: string): string {
   const tag = /<title[^>]*>([^<]*)<\/title>/i.exec(html.slice(0, 16_384))?.[1]?.trim();
@@ -19,8 +41,8 @@ export function artifactTitle(html: string, filePath: string, given?: string): s
 
 interface Index {
   items: ArtifactInfo[];
-  /** Đã quét lịch sử các phiên cũ để lấy lại file Claude từng tạo. */
-  backfilled?: boolean;
+  /** Đã quét lịch sử các phiên cũ (phiên bản cách quét). */
+  backfilled?: boolean | number;
 }
 
 /**
@@ -30,6 +52,9 @@ interface Index {
  * - trang đăng lên claude.ai (công cụ Artifact): lưu bản sao HTML để xem lại trong app.
  * Nằm trong thư mục dữ liệu của app, mỗi thư mục làm việc một thư mục con (theo mã băm đường dẫn).
  */
+/** Tiêu đề khi công cụ không cho biết tên trang. */
+const FALLBACK_TITLE = 'Trang trên claude.ai';
+
 export class ArtifactStore {
   constructor(private readonly dir: string) {}
 
@@ -71,10 +96,11 @@ export class ArtifactStore {
     const now = Date.now();
     const existing = entry.url ? index.items.find((a) => a.url === entry.url) : undefined;
     const info: ArtifactInfo = existing
-      ? { ...existing, title: entry.title, description: entry.description ?? existing.description, fileName: entry.fileName, updatedAt: now }
+      ? { ...existing, title: entry.title, description: entry.description ?? existing.description, fileName: entry.fileName, kind: 'page', updatedAt: now }
       : {
           id: randomUUID(),
           source: 'published',
+          kind: 'page',
           title: entry.title,
           description: entry.description,
           url: entry.url,
@@ -83,9 +109,45 @@ export class ArtifactStore {
           updatedAt: now,
         };
     await mkdir(this.#folder(cwd), { recursive: true });
+    info.local = true;
     await writeFile(path.join(this.#folder(cwd), `${info.id}.html`), entry.html);
     await this.#save(cwd, { ...index, items: [info, ...index.items.filter((a) => a.id !== info.id)] });
     return info;
+  }
+
+  /**
+   * Ghi nhận các link trang/tài liệu trên claude.ai (không có bản sao trên máy, ví dụ Claude Docs).
+   * Cùng link thì không thêm lần nữa; mục có sẵn được bổ sung tiêu đề nếu trước đó chưa có. Trả về true nếu có thay đổi.
+   */
+  async recordLinks(cwd: string, links: ArtifactLink[]): Promise<boolean> {
+    if (links.length === 0) return false;
+    const index = await this.#load(cwd);
+    let changed = false;
+    for (const l of links) {
+      const existing = index.items.find((a) => a.url === l.url);
+      if (existing) {
+        if (l.title && existing.title === FALLBACK_TITLE) {
+          existing.title = l.title;
+          changed = true;
+        }
+        continue;
+      }
+      const time = l.time ?? Date.now();
+      index.items.unshift({
+        id: randomUUID(),
+        source: 'published',
+        kind: l.doc ? 'doc' : 'page',
+        local: false,
+        title: l.title ?? FALLBACK_TITLE,
+        url: l.url,
+        fileName: '',
+        createdAt: time,
+        updatedAt: time,
+      });
+      changed = true;
+    }
+    if (changed) await this.#save(cwd, index);
+    return changed;
   }
 
   /** Ghi nhận các file Claude vừa tạo trong thư mục (đường dẫn tương đối, dạng /). Trả về true nếu có mục mới. */
@@ -109,12 +171,13 @@ export class ArtifactStore {
    * Lần đầu mở danh sách của một thư mục: lấy lại các file Claude từng tạo trong các phiên trước
    * (trước khi có tính năng này). Chỉ chạy một lần cho mỗi thư mục.
    */
-  async backfill(cwd: string, find: () => Promise<string[]>): Promise<boolean> {
+  async backfill(cwd: string, find: () => Promise<{ files: string[]; links: ArtifactLink[] }>): Promise<boolean> {
     const index = await this.#load(cwd);
-    if (index.backfilled) return false;
+    if (index.backfilled === BACKFILL_VERSION) return false;
     let paths: string[] = [];
+    let links: ArtifactLink[] = [];
     try {
-      paths = await find();
+      ({ files: paths, links } = await find());
     } catch {
       // không đọc được lịch sử: bỏ qua, vẫn đánh dấu để không quét lại mãi
     }
@@ -123,8 +186,10 @@ export class ArtifactStore {
       const st = await stat(path.join(cwd, p)).catch(() => null);
       if (st?.isFile()) files.push({ path: p, time: st.mtimeMs });
     }
-    await this.#save(cwd, { ...index, backfilled: true });
-    return this.recordFiles(cwd, files);
+    await this.#save(cwd, { ...index, backfilled: BACKFILL_VERSION });
+    const addedFiles = await this.recordFiles(cwd, files);
+    const addedLinks = await this.recordLinks(cwd, links);
+    return addedFiles || addedLinks;
   }
 
   async content(cwd: string, id: string): Promise<string | null> {
@@ -146,26 +211,32 @@ export class ArtifactStore {
 }
 
 /**
- * Các file Claude từng tạo mới (công cụ Write báo "File created") trong thư mục làm việc, đọc từ lịch sử phiên.
- * `messages` là nội dung các phiên (định dạng tin nhắn của Claude Code).
+ * Đọc lịch sử phiên (định dạng tin nhắn của Claude Code) để lấy lại:
+ * - các file Claude từng tạo mới trong thư mục làm việc (công cụ Write báo "File created");
+ * - các link trang/tài liệu trên claude.ai xuất hiện trong kết quả công cụ (Artifact, Claude Docs…).
  */
-export function createdFilesFromMessages(cwd: string, messages: unknown[]): string[] {
-  const pending = new Map<string, string>();
-  const created: string[] = [];
+export function artifactsFromMessages(cwd: string, messages: unknown[]): { files: string[]; links: ArtifactLink[] } {
+  const uses = new Map<string, { name: string; input: Record<string, unknown> }>();
+  const files: string[] = [];
+  const links = new Map<string, ArtifactLink>();
   for (const m of messages) {
     const content = (m as { message?: { content?: unknown } }).message?.content;
     if (!Array.isArray(content)) continue;
     for (const b of content as Record<string, unknown>[]) {
-      if (b.type === 'tool_use' && b.name === 'Write') {
-        const fp = (b.input as { file_path?: unknown } | undefined)?.file_path;
-        if (typeof fp === 'string') pending.set(String(b.id), fp);
-      } else if (b.type === 'tool_result' && pending.has(String(b.tool_use_id)) && !b.is_error) {
+      if (b.type === 'tool_use') {
+        uses.set(String(b.id), { name: String(b.name ?? ''), input: (b.input as Record<string, unknown>) ?? {} });
+      } else if (b.type === 'tool_result' && !b.is_error) {
+        const use = uses.get(String(b.tool_use_id));
+        if (!use) continue;
         const out = typeof b.content === 'string' ? b.content : JSON.stringify(b.content ?? '');
-        const abs = path.resolve(cwd, pending.get(String(b.tool_use_id))!);
-        const rel = path.relative(cwd, abs);
-        if (/created successfully/i.test(out) && rel && !rel.startsWith('..') && !path.isAbsolute(rel)) created.push(rel.split(path.sep).join('/'));
+        if (use.name === 'Write' && typeof use.input.file_path === 'string' && /created successfully/i.test(out)) {
+          const rel = path.relative(cwd, path.resolve(cwd, use.input.file_path));
+          if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) files.push(rel.split(path.sep).join('/'));
+        }
+        const url = artifactUrl(out);
+        if (url && !links.has(url)) links.set(url, { url, title: linkTitle(use.input), doc: isDocsTool(use.name) });
       }
     }
   }
-  return created;
+  return { files, links: [...links.values()] };
 }

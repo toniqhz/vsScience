@@ -358,6 +358,8 @@ export class AgentSession {
       onSessionsChanged?: () => void;
       /** Claude vừa đăng một trang (công cụ Artifact) thành công: đầu vào của công cụ và kết quả. */
       onArtifact?: (input: Record<string, unknown>, output: string, cwd: string) => void;
+      /** Kết quả của một công cụ khác (ví dụ Claude Docs) có link trang trên claude.ai. */
+      onArtifactLink?: (toolName: string, input: Record<string, unknown>, output: string, cwd: string) => void;
       /** Chạy trước mỗi lượt Claude (ví dụ tự lưu bản). Lỗi ở đây không chặn lượt. */
       beforeTurn?: (text: string) => Promise<void>;
       /** Thư mục gốc chứa thư mục nháp của mỗi thư mục làm việc (script tạm của Claude). */
@@ -780,6 +782,9 @@ export class AgentSession {
           const used = this.#toolInputs.get(r.tool_use_id);
           if (toolName === 'Artifact' && !r.is_error && used && (used.input.action ?? 'publish') === 'publish' && this.#cwd) {
             this.opts.onArtifact?.(used.input, toolResultText(r.content), this.#cwd);
+          } else if (toolName && toolName !== 'Artifact' && !r.is_error && used && this.#cwd) {
+            const text = toolResultText(r.content);
+            if (text.includes('claude.ai/')) this.opts.onArtifactLink?.(toolName, used.input, text, this.#cwd);
           }
         }
         return;

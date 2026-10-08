@@ -7,7 +7,7 @@ import websocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
 import type { ServerEvent } from '@ide/shared';
 import { AgentSession, type QueryFn, type SessionApi } from './agent.js';
-import { ArtifactStore, artifactTitle, artifactUrl, createdFilesFromMessages } from './artifacts.js';
+import { ArtifactStore, artifactTitle, artifactUrl, artifactsFromMessages, isDocsTool, linkTitle } from './artifacts.js';
 import { ClaudeAuth } from './claude-auth.js';
 import { Snapshots } from './snapshots.js';
 import type { Config } from './config.js';
@@ -99,9 +99,17 @@ export async function buildApp(
   const packs = new PackManager(pythonHome(), packsDir(), (pack) => broadcast({ type: 'pack', pack }));
   // Trang (artifact) Claude đăng lên claude.ai: lưu bản sao HTML để xem lại trong app.
   const artifacts = new ArtifactStore(config.artifactsDir ?? path.join(path.dirname(config.snapshotsDir), 'artifacts'));
+  const recordLink = async (toolName: string, input: Record<string, unknown>, output: string, cwd: string) => {
+    const url = artifactUrl(output);
+    if (!url) return;
+    if (await artifacts.recordLinks(cwd, [{ url, title: linkTitle(input), doc: isDocsTool(toolName) }])) broadcast({ type: 'artifacts-changed' });
+  };
   const recordArtifact = async (input: Record<string, unknown>, output: string, cwd: string) => {
     const file = typeof input.file_path === 'string' ? path.resolve(cwd, input.file_path) : null;
-    if (!file || !/\.html?$/i.test(file)) return;
+    if (!file || !/\.html?$/i.test(file)) {
+      // Trang không phải HTML (ví dụ Markdown): vẫn giữ link để mở trên claude.ai.
+      return recordLink('Artifact', input, output, cwd);
+    }
     const html = await readFile(file, 'utf8');
     const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
     await artifacts.record(cwd, {
@@ -130,6 +138,7 @@ export async function buildApp(
     replay: (events) => broadcast({ type: 'agent-replay', events }),
     onSessionsChanged: () => broadcast({ type: 'sessions-changed' }),
     onArtifact: (input, output, cwd) => void recordArtifact(input, output, cwd).catch((err) => app.log.error(err)),
+    onArtifactLink: (toolName, input, output, cwd) => void recordLink(toolName, input, output, cwd).catch((err) => app.log.error(err)),
     // Tự lưu bản trước mỗi lượt để có thể hoàn tác đúng phần Claude đã sửa.
     beforeTurn: async (text) => {
       const saved = await snapshots.snapshot(`Trước khi Claude làm: ${text.replace(/\s+/g, ' ').slice(0, 80)}`);
@@ -290,7 +299,7 @@ export async function buildApp(
   app.get('/api/artifacts', async () => {
     const cwd = workspace.root;
     // Lần đầu với thư mục này: lấy lại các file Claude đã tạo trong các phiên trước.
-    await artifacts.backfill(cwd, async () => createdFilesFromMessages(cwd, await agent.allSessionMessages()));
+    await artifacts.backfill(cwd, async () => artifactsFromMessages(cwd, await agent.allSessionMessages()));
     return artifacts.list(cwd);
   });
   app.get<{ Querystring: { id: string } }>(

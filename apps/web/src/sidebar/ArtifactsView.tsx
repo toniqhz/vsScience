@@ -48,12 +48,12 @@ export function ArtifactsView({ onOpen }: { onOpen: (a: ArtifactInfo) => void })
           return (
             <div key={a.id} className="side-row artifact-row" title={a.path ?? a.description ?? a.title}>
               <button className="side-row-main" onClick={() => onOpen(a)}>
-                <span className={`codicon ${kind ? `${FILE_KIND_META[kind].icon} kind-${kind}` : 'codicon-preview'}`} />
+                <span className={`codicon ${kind ? `${FILE_KIND_META[kind].icon} kind-${kind}` : a.kind === 'doc' ? 'codicon-book' : 'codicon-preview'}`} />
                 <span className="artifact-text">
                   <span className="artifact-name">{a.title}</span>
                   {a.description && <span className="artifact-desc">{a.description}</span>}
                   <span className="artifact-time">
-                    {a.source === 'published' ? 'Trang trên claude.ai' : dir || 'Thư mục gốc'} · {timeAgo(a.updatedAt)}
+                    {a.source === 'file' ? dir || 'Thư mục gốc' : a.kind === 'doc' ? 'Claude Docs trên claude.ai' : 'Trang trên claude.ai'} · {timeAgo(a.updatedAt)}
                   </span>
                 </span>
               </button>

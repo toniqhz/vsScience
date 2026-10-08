@@ -209,7 +209,8 @@ function Workbench() {
       existing.api.setActive();
       return;
     }
-    const params: ArtifactPanelParams = { artifactId: a.id, title: a.title, url: a.url };
+    // Trang cũ (trước khi có trường local) luôn có bản sao HTML.
+    const params: ArtifactPanelParams = { artifactId: a.id, title: a.title, url: a.url, local: a.local !== false, doc: a.kind === 'doc' };
     api.addPanel({ id, component: 'artifact', title: a.title, params });
   }, [openPath]);
 
