@@ -25,6 +25,9 @@
   --kind-pdf: #f1707b;
   --kind-word: #6cb6ff;
   --kind-excel: #6ccb8c;
+  --kind-markdown: #b4a7e5;
+  --kind-text: #c5c5c5;
+  --kind-html: #e8a46a;
   --kind-folder: #dcb67a;
 
   /* Font monospace có đủ chữ tiếng Việt dựng sẵn (diff, lệnh, đầu ra). */
@@ -374,6 +377,15 @@ textarea:focus {
 .kind-word {
   color: var(--kind-word);
 }
+.kind-markdown {
+  color: var(--kind-markdown);
+}
+.kind-text {
+  color: var(--kind-text);
+}
+.kind-html {
+  color: var(--kind-html);
+}
 .kind-excel {
   color: var(--kind-excel);
 }
@@ -389,6 +401,7 @@ textarea:focus {
 /* ---------- Claude (khu vực chính) ---------- */
 
 .chat-panel {
+  position: relative;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -401,19 +414,22 @@ textarea:focus {
   min-height: 0;
   overflow: auto;
   display: flex;
+  /* Không kéo giãn nội dung bằng chiều cao khung: để khoảng đệm cuối hội thoại nằm sau dòng cuối cùng. */
+  align-items: flex-start;
 }
 
 .chat-column {
   width: 100%;
-  max-width: 760px;
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 20px;
 }
 
+/* Hội thoại trải hết bề ngang khung chat như Claude Code trong VS Code; riêng màn hình chào giữ cột hẹp ở giữa. */
 .chat-welcome {
+  max-width: 760px;
   margin: auto;
   padding-top: 32px;
-  padding-bottom: 24px;
+  padding-bottom: calc(var(--composer-h, 110px) + 24px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -421,8 +437,8 @@ textarea:focus {
 }
 
 .chat-logo {
-  font-size: 40px !important;
-  color: var(--claude);
+  width: 72px;
+  height: 72px;
 }
 
 .chat-welcome h1 {
@@ -501,21 +517,41 @@ textarea:focus {
   line-height: 1.45;
 }
 
+/* Ô chat nổi đè lên phần dưới của hội thoại (như Claude Code trong VS Code): chữ cuộn bên dưới nó,
+   hội thoại chừa khoảng trống --composer-h ở cuối để dòng cuối vẫn lên được phía trên ô chat. */
 .composer-wrap {
-  flex: none;
-  position: relative;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
   padding-bottom: 14px;
+  pointer-events: none;
+  /* Ô chat rộng nửa khung, thẻ hạn mức ngay bên phải và cao bằng ô chat. */
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 10px;
 }
 
-/* ---------- Hạn mức gói Claude (góc dưới bên phải, cạnh ô chat) ---------- */
+.composer-wrap > * {
+  pointer-events: auto;
+}
 
-/* Cao đúng bằng ô chat: bám mép trên của khung và mép dưới của ô chat (trừ khoảng đệm 14px). */
+.composer-wrap > .composer {
+  flex: 0 1 50%;
+  min-width: 420px;
+}
+
+.composer-wrap > .composer,
+.composer-wrap > .usage-card {
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.2);
+}
+
+/* ---------- Hạn mức gói Claude (bên phải ô chat) ---------- */
+
 .usage-card {
-  position: absolute;
-  left: calc(100% - 8px);
-  top: 0;
-  bottom: 14px;
-  width: 310px;
+  flex: 0 0 310px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -555,7 +591,8 @@ textarea:focus {
 }
 
 .usage-label {
-  color: var(--text-strong);
+  color: var(--text);
+  white-space: nowrap;
 }
 
 .usage-pct {
@@ -590,30 +627,34 @@ textarea:focus {
 .usage-reset {
   flex: none;
   /* Bề rộng cố định để hai thanh dài bằng nhau dù chữ dài ngắn khác nhau. */
-  min-width: 172px;
+  min-width: 150px;
   text-align: right;
   color: var(--text-faint);
   font-size: 11px;
   white-space: nowrap;
 }
 
-/* Khung chat hẹp, không đủ chỗ bên phải ô chat: xếp hạn mức thành một dải ngang dưới ô chat. */
-@container chat (max-width: 1380px) {
+/* Khung chat hẹp, không đủ chỗ cho thẻ bên phải: ô chat rộng hết, hạn mức thành dải ngang bên dưới. */
+@container chat (max-width: 780px) {
+  .composer-wrap {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .composer-wrap > .composer {
+    flex: none;
+    min-width: 0;
+  }
+
   .usage-card {
-    position: static;
-    width: 100%;
+    flex: none;
     flex-direction: row;
     gap: 16px;
-    margin-top: 6px;
     padding: 6px 10px;
   }
 
   .usage-row {
     flex: 1;
-  }
-
-  .usage-label {
-    white-space: nowrap;
   }
 
   .usage-reset {
@@ -652,7 +693,7 @@ textarea:focus {
   background: transparent;
   font-size: 13px;
   line-height: 1.5;
-  color: var(--text-strong);
+  color: var(--text);
   overflow-y: auto;
 }
 
@@ -987,7 +1028,8 @@ button.composer-chip:hover,
 
 .transcript {
   padding-top: 20px;
-  padding-bottom: 12px;
+  /* Chỗ cho ô chat nổi phía dưới, cộng khoảng thở giữa dòng cuối và ô chat. */
+  padding-bottom: calc(var(--composer-h, 110px) + 24px);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1006,7 +1048,7 @@ button.composer-chip:hover,
   padding: 8px 12px;
   border-radius: 8px;
   background: var(--bg-input);
-  color: var(--text-strong);
+  color: var(--text);
   white-space: pre-wrap;
   line-height: 1.5;
 }
@@ -1875,13 +1917,14 @@ kbd {
 .msg-assistant h2,
 .msg-assistant h3 {
   margin: 16px 0 8px;
-  color: var(--text-strong);
+  /* Như khung chat của VS Code: tiêu đề và chữ đậm cùng màu chữ thường, chỉ khác độ đậm. */
+  color: var(--text);
   font-size: 15px;
   font-weight: 600;
 }
 
 .msg-assistant strong {
-  color: var(--text-strong);
+  color: inherit;
 }
 
 .msg-assistant a {
@@ -1924,7 +1967,7 @@ kbd {
 
 .msg-assistant th {
   background: var(--bg-side);
-  color: var(--text-strong);
+  color: var(--text);
 }
 
 .msg-assistant blockquote {
@@ -1932,19 +1975,6 @@ kbd {
   padding-left: 12px;
   border-left: 3px solid var(--border);
   color: var(--text-muted);
-}
-
-.msg-assistant.is-streaming > :last-child::after {
-  content: '▍';
-  margin-left: 2px;
-  color: var(--claude);
-  animation: blink 1s steps(2, start) infinite;
-}
-
-@keyframes blink {
-  to {
-    visibility: hidden;
-  }
 }
 
 .working {
@@ -2041,8 +2071,7 @@ kbd {
 
 .file-change,
 .changes-summary,
-.permission-card,
-.todo-list {
+.permission-card {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-side);
@@ -2083,7 +2112,7 @@ kbd {
   padding: 0;
   border: none;
   background: none;
-  color: var(--text-strong);
+  color: var(--text);
   font: inherit;
   font-weight: 500;
   overflow: hidden;
@@ -2221,7 +2250,7 @@ kbd {
   gap: 8px;
   padding: 7px 12px;
   border-bottom: 1px solid var(--border-subtle);
-  color: var(--text-strong);
+  color: var(--text);
   font-weight: 500;
 }
 
@@ -2251,46 +2280,6 @@ kbd {
   pointer-events: none;
 }
 
-/* Việc cần làm (TodoWrite) */
-.todo-list {
-  padding: 8px 12px;
-}
-
-.todo-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
-  color: var(--text-strong);
-  font-weight: 500;
-}
-
-.todo-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 2px 0;
-  color: var(--text);
-}
-
-.todo-item .codicon {
-  margin-top: 2px;
-  font-size: 14px;
-}
-
-.todo-completed {
-  color: var(--text-faint);
-  text-decoration: line-through;
-}
-
-.todo-completed .codicon {
-  color: #73c991;
-}
-
-.todo-in_progress .codicon {
-  color: var(--claude);
-}
-
 /* Xin quyền */
 .permission-card {
   border-color: rgba(217, 119, 87, 0.6);
@@ -2301,7 +2290,7 @@ kbd {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--text-strong);
+  color: var(--text);
 }
 
 .permission-title .codicon {
@@ -2766,4 +2755,546 @@ kbd {
   .chip-dim {
     display: none;
   }
+}
+
+/* Kế hoạch ghim ở đầu khung chat (TaskCreate / TaskUpdate) */
+.plan-panel {
+  flex: none;
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+
+.plan-panel > * {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+}
+
+.plan-head-row {
+  display: flex;
+  align-items: stretch;
+  border-radius: 6px;
+}
+
+.plan-head {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px 0 0 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.plan-panel.is-open .plan-head-row {
+  border-radius: 6px 6px 0 0;
+  border-bottom-color: var(--border-subtle);
+}
+
+.plan-close {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border: none;
+  border-radius: 0 6px 6px 0;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.plan-close:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.plan-head:hover {
+  background: var(--bg-hover);
+}
+
+.plan-head .codicon-checklist {
+  color: var(--claude);
+}
+
+.plan-title {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.plan-count {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.plan-bar {
+  flex: none;
+  width: 64px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-input);
+  overflow: hidden;
+}
+
+.plan-bar > span {
+  display: block;
+  height: 100%;
+  background: #73c991;
+  transition: width 0.3s;
+}
+
+.plan-current {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.plan-steps {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: min(55vh, 460px);
+  overflow: auto;
+  border-top: none !important;
+  border-radius: 0 0 6px 6px;
+}
+
+.plan-step {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.plan-step:hover {
+  background: var(--bg-hover);
+}
+
+.plan-step .codicon {
+  margin-top: 2px;
+  font-size: 14px;
+  color: var(--text-faint);
+}
+
+.plan-step-n {
+  color: var(--text-muted);
+  min-width: 1.4em;
+}
+
+.plan-step + .plan-step,
+.plan-steps li + li {
+  margin-top: 2px;
+}
+
+.plan-step {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+.plan-step-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plan-step-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.plan-step-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Tóm tắt bước: gọn 2 dòng, bước đang làm hiện đủ. */
+.plan-step-desc {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-line;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.plan-step.is-in_progress .plan-step-desc,
+.plan-step:hover .plan-step-desc {
+  -webkit-line-clamp: unset;
+  display: block;
+}
+
+.plan-step.is-completed .plan-step-text {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+.plan-step.is-completed .codicon {
+  color: #73c991;
+}
+
+.plan-step.is-in_progress .codicon {
+  color: var(--claude);
+}
+
+.plan-step.is-in_progress .plan-step-text {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.plan-step-tag {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: rgba(217, 119, 87, 0.18);
+  color: var(--claude);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.plan-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 2px 6px;
+  margin: -6px 0;
+  border-radius: 4px;
+  color: var(--text-muted);
+}
+
+.plan-note .codicon {
+  margin-top: 2px;
+  font-size: 14px;
+}
+
+.plan-note .codicon-checklist,
+.plan-note.is-in_progress .codicon {
+  color: var(--claude);
+}
+
+.plan-note.is-completed .codicon {
+  color: #73c991;
+}
+
+.plan-note-detail {
+  color: var(--text);
+}
+
+.flash {
+  animation: plan-flash 1.6s ease-out;
+}
+
+@keyframes plan-flash {
+  0%,
+  30% {
+    background: rgba(217, 119, 87, 0.25);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* Hội thoại cuộn dưới bảng kế hoạch: mờ dần ở mép trên thay vì cắt ngang dòng chữ. */
+.plan-panel + .chat-scroll {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
+}
+
+/* ---------- Đường timeline bên trái hội thoại (như Claude Code trong VS Code) ----------
+   Mỗi việc Claude làm có một chấm; các chấm liền nhau nối bằng một vạch dọc.
+   --dot-y: tâm chấm tính từ mép trên của mục (căn với dòng đầu tiên). */
+.tl-item {
+  --dot-y: 11px;
+  --tl-gap: 12px; /* bằng gap của .transcript */
+  position: relative;
+  padding-left: 20px;
+}
+
+.tl-item::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: calc(var(--dot-y) - 3.5px);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  box-shadow: 0 0 0 2px var(--bg);
+  z-index: 1;
+}
+
+.tl-item::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  width: 1px;
+  top: 0;
+  bottom: calc(-1 * var(--tl-gap));
+  background: var(--border);
+}
+
+/* Mục đầu nhóm: vạch bắt đầu từ chấm. Mục cuối nhóm: vạch dừng ở chấm. Đứng một mình: không có vạch. */
+.tl-item:not(.tl-item + .tl-item)::after {
+  top: var(--dot-y);
+}
+
+.tl-item:not(:has(+ .tl-item))::after {
+  bottom: auto;
+  height: var(--dot-y);
+}
+
+.tl-item:not(.tl-item + .tl-item):not(:has(+ .tl-item))::after {
+  display: none;
+}
+
+.tl-item.dot-text::before {
+  background: var(--text-muted);
+}
+
+.tl-item.dot-ok::before {
+  background: #73c991;
+}
+
+.tl-item.dot-error::before {
+  background: #f14c4c;
+}
+
+.tl-item.dot-ask::before {
+  background: var(--claude);
+}
+
+.tl-item.dot-pending::before {
+  background: var(--text-muted);
+  animation: tl-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes tl-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* Dòng thao tác thu gọn: khoảng cách âm đặt ở hàng timeline để chấm và vạch khớp với dòng. */
+.tl-item:has(> .tool-row),
+.tl-item:has(> .plan-note) {
+  --dot-y: 12px;
+  margin: -6px 0;
+}
+
+.tl-item > .tool-row,
+.tl-item > .plan-note {
+  margin: 0;
+}
+
+.tl-item:has(> .file-change),
+.tl-item:has(> .changes-summary),
+.tl-item:has(> .help-card),
+.tl-item:has(> .context-card) {
+  --dot-y: 16px;
+}
+
+.tl-item:has(> .permission-card) {
+  --dot-y: 21px;
+}
+
+.tl-item:has(> .msg-notice),
+.tl-item:has(> .working) {
+  --dot-y: 10px;
+}
+
+/* ---------- Lượt hội thoại: câu hỏi ghim ở đầu khung khi cuộn qua phần trả lời ---------- */
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: 12px; /* bằng gap của .transcript */
+}
+
+/* top: -1px để biết lúc đang ghim (bị khuất 1px); padding bù lại khoảng cách với đỉnh khung. */
+.msg-user-sticky {
+  position: sticky;
+  top: -1px;
+  z-index: 3;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -9px;
+  padding-top: 9px;
+  pointer-events: none;
+}
+
+.msg-user-sticky .msg-user {
+  pointer-events: auto;
+}
+
+.msg-user-sticky.is-stuck .msg-user {
+  cursor: pointer;
+}
+
+.msg-user-sticky.is-stuck .msg-user-text {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.msg-user-sticky.is-stuck .msg-files {
+  display: none;
+}
+
+/* ---------- Artifact (trang Claude đã đăng) ---------- */
+.artifact-row .side-row-main {
+  height: auto;
+  align-items: flex-start;
+}
+
+.artifact-row .codicon-preview {
+  margin-top: 2px;
+}
+
+.artifact-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.artifact-row {
+  align-items: flex-start;
+  padding: 5px 8px 5px 12px;
+}
+
+.artifact-name {
+  color: var(--text);
+  line-height: 1.35;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.artifact-time {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.artifact-desc {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.artifact-viewer {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.artifact-viewer .viewer-info {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.artifact-open {
+  margin-left: auto;
+  flex: none;
+  text-decoration: none;
+}
+
+/* Trang của Claude thường thiết kế cho nền sáng/tối riêng: để trang tự vẽ nền. */
+.artifact-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #fff;
+}
+
+/* ---------- Xem file chữ (.md, .txt, .html) ---------- */
+.text-viewer {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.text-viewer-toggle {
+  margin-left: auto;
+}
+
+.text-viewer-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.text-viewer-md {
+  max-width: 820px;
+  padding: 20px 28px 40px;
+}
+
+.text-viewer-plain {
+  margin: 0;
+  padding: 16px 20px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Xem ảnh ---------- */
+.image-viewer {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.image-viewer-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  /* Nền ô cờ để thấy được vùng trong suốt của ảnh. */
+  background: repeating-conic-gradient(#2a2a2a 0% 25%, #232323 0% 50%) 0 0 / 16px 16px;
+}
+
+.image-viewer-body img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.kind-image {
+  color: #c49bdb;
 }

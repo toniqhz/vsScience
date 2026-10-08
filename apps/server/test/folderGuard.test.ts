@@ -25,6 +25,20 @@ describe('FolderGuard', () => {
     expect(bash('curl -s https://example.com/a/b | head')).toEqual([]);
   });
 
+  it('khóa PDF trong code Python ("/XObject", "/Width") không phải đường dẫn', () => {
+    const code = `python3 -I -c "
+import pypdf
+r = pypdf.PdfReader('Sách/a.pdf')
+xo = r.pages[0]['/Resources'].get('/XObject')
+for k in xo:
+    o = xo[k].get_object()
+    if o.get('/Subtype') == '/Image': print(o.get('/Filter'), o.get('/Width'), o.get('/Height'))
+"`;
+    expect(bash(code)).toEqual([]);
+    // Thư mục gốc có thật vẫn bị kiểm tra như cũ.
+    expect(bash('ls /etc/')).toEqual(['/etc']);
+  });
+
   it('đụng tới file ngoài thư mục: báo đường dẫn để hỏi lại', () => {
     expect(bash('cat ~/.ssh/id_rsa')).toEqual([path.join(homedir(), '.ssh/id_rsa')]);
     expect(bash('cp "Đề thi/Đề.docx" ../Desktop-khac/')).toEqual(['/mnt/c/Users/Tuan Nguyen/OneDrive/Desktop/Desktop-khac']);

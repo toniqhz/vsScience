@@ -93,7 +93,8 @@ export function comparableLines(file: string, data: Uint8Array | null): string[]
   try {
     if (ext === '.docx') return docxParagraphs(data);
     if (ext === '.xlsx' || ext === '.xlsm') return xlsxCells(data);
-    if (ext === '.csv') return new TextDecoder().decode(data).split(/\r?\n/);
+    if (ext === '.csv' || ext === '.md' || ext === '.markdown' || ext === '.txt' || ext === '.html' || ext === '.htm')
+      return new TextDecoder().decode(data).split(/\r?\n/);
   } catch {
     return null;
   }

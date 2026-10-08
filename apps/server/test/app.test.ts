@@ -58,7 +58,10 @@ beforeAll(async () => {
   writeFileSync(path.join(root, 'Chương 2', 'sach.pdf'), '%PDF-1.4 fake');
   writeFileSync(path.join(root, 'de-thi.docx'), 'docx');
   writeFileSync(path.join(root, 'ngan-hang.xlsx'), 'xlsx');
-  writeFileSync(path.join(root, 'ghi-chu.txt'), 'txt');
+  writeFileSync(path.join(root, 'ghi-chu.md'), '# Ghi chú');
+  writeFileSync(path.join(root, 'anh.png'), 'png');
+  writeFileSync(path.join(root, 'cai-dat.exe'), 'MZ');
+  writeFileSync(path.join(root, 'desktop.ini'), 'hệ thống');
   writeFileSync(path.join(root, '~$de-thi.docx'), 'lock');
   writeFileSync(path.join(root, '.an.pdf'), 'hidden');
   writeFileSync(path.join(base, 'bi-mat.pdf'), 'outside');
@@ -113,11 +116,11 @@ describe('xác thực', () => {
 });
 
 describe('cây thư mục', () => {
-  it('chỉ hiện thư mục và file Word/Excel/PDF, sắp xếp tự nhiên', async () => {
+  it('hiện mọi file như File Explorer (trừ file ẩn và file hệ thống), sắp xếp tự nhiên', async () => {
     const res = await app.inject({ url: '/api/tree', headers: auth });
     const body = res.json<TreeResponse>();
     const names = (body.root.children ?? []).map((n: TreeNode) => n.name);
-    expect(names).toEqual(['Chương 2', 'Chương 10', 'de-thi.docx', 'ngan-hang.xlsx']);
+    expect(names).toEqual(['Chương 2', 'Chương 10', 'anh.png', 'cai-dat.exe', 'de-thi.docx', 'ghi-chu.md', 'ngan-hang.xlsx']);
     const chuong2 = body.root.children?.[0];
     expect(chuong2?.children?.[0]).toMatchObject({ id: 'Chương 2/sach.pdf', kind: 'pdf', type: 'file' });
   });
@@ -141,7 +144,6 @@ describe('đọc file', () => {
     ['.an.pdf', 400],
     ['link.pdf', 404],
     ['khong-co.pdf', 404],
-    ['ghi-chu.txt', 415],
     ['Chương 2', 415],
   ])('chặn %s', async (p, status) => {
     const res = await app.inject({ url: `/api/file?path=${encodeURIComponent(p)}`, headers: auth });
@@ -159,8 +161,8 @@ describe('mở bằng ứng dụng ngoài', () => {
   it.each([
     ['../bi-mat.pdf', 400],
     ['link.pdf', 404],
-    ['ghi-chu.txt', 415],
     ['Chương 2', 415],
+    ['cai-dat.exe', 415],
   ])('không mở %s', async (p, status) => {
     opened.length = 0;
     const res = await app.inject({ method: 'POST', url: '/api/file/open-external', headers: auth, payload: { path: p } });

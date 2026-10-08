@@ -5,7 +5,7 @@ import { api } from '../api/client';
  * Nút mở file bằng Word/Excel trên máy để người dùng tự sửa. Lưu trong Word/Excel là
  * khung xem tự tải lại và mục Thay đổi tự ghi nhận (app theo dõi file trên đĩa).
  */
-export function OpenExternalButton({ path, app, primary = false }: { path: string; app: 'Word' | 'Excel'; primary?: boolean }) {
+export function OpenExternalButton({ path, app, primary = false }: { path: string; app: string; primary?: boolean }) {
   const [state, setState] = useState<'idle' | 'opening' | 'opened' | 'error'>('idle');
   const [error, setError] = useState('');
 

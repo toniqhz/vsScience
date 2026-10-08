@@ -2,7 +2,8 @@
 // Chỉ chứa type (import bằng `import type`) để không phát sinh mã chạy.
 
 /** Ba loại file người dùng làm việc chính. */
-export type FileKind = 'pdf' | 'word' | 'excel';
+/** Loại file để chọn cách xem; 'other' là file khác (zip, video…) chỉ mở được bằng ứng dụng trên máy. */
+export type FileKind = 'pdf' | 'word' | 'excel' | 'markdown' | 'text' | 'html' | 'image' | 'other';
 
 export interface TreeNode {
   /** Đường dẫn tương đối kiểu POSIX tính từ thư mục làm việc; gốc là "". */
@@ -206,6 +207,26 @@ export interface PlanUsage {
 }
 
 /** Gói tùy chọn (thư viện Python cài thêm khi người dùng đồng ý), ví dụ gói phân tích số liệu. */
+/**
+ * Sản phẩm Claude tạo ra khi làm việc với thư mục này: file mới trong thư mục (ghi chú, bản tóm tắt, đề…)
+ * hoặc trang đăng lên claude.ai.
+ */
+export interface ArtifactInfo {
+  id: string;
+  /** 'file': file trong thư mục làm việc (xem bằng khung xem file); 'published': trang trên claude.ai (có bản sao HTML). */
+  source: 'file' | 'published';
+  /** Đường dẫn tương đối của file (source 'file'). */
+  path?: string;
+  title: string;
+  description?: string;
+  /** Link trên claude.ai; null nếu không đọc được từ kết quả. */
+  url: string | null;
+  /** Tên file HTML Claude đã viết. */
+  fileName: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface PackInfo {
   id: string;
   title: string;
@@ -226,5 +247,6 @@ export type ServerEvent =
   /** Danh sách phiên hoặc bản lưu vừa đổi — giao diện tải lại khi cần. */
   | { type: 'sessions-changed' }
   | { type: 'changes-changed' }
+  | { type: 'artifacts-changed' }
   | { type: 'usage'; usage: PlanUsage }
   | { type: 'pack'; pack: PackInfo };

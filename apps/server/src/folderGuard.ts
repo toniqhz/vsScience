@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -36,6 +36,8 @@ export interface GuardOptions {
   platform?: NodeJS.Platform;
   env?: NodeJS.ProcessEnv;
   home?: string;
+  /** Kiểm tra đường dẫn có tồn tại (thay được khi test). */
+  exists?: (p: string) => boolean;
 }
 
 /** Đường dẫn trông như một đường dẫn duy nhất (có thể chứa dấu cách) thay vì một đoạn code. */
@@ -136,6 +138,9 @@ export class FolderGuard {
     // Chỉ lấy phần trước ký tự đại diện: /a/b/*.docx → /a/b
     const glob = w.search(/[*?]/);
     if (glob >= 0) w = w.slice(0, glob);
+    // Một tầng ngay dưới gốc mà không tồn tại (khóa PDF "/XObject", "/Width" trong code Python, …):
+    // không trỏ tới file nào có sẵn, nên không coi là đường dẫn.
+    if (/^[\\/][^\\/:]+[\\/]?$/.test(w) && !(this.opts.exists ?? existsSync)(this.#p.resolve(cwd, w))) return null;
     if (this.#win) {
       // Tham số kiểu /s, /E của lệnh Windows; "/" đơn là phép chia.
       if (/^\/[A-Za-z0-9?]{0,4}$/.test(w) || w.startsWith('//')) return null;

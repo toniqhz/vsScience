@@ -63,7 +63,7 @@ jobs:
 
           Bản thử nghiệm chưa ký số:
           - **Windows**: SmartScreen cảnh báo, chọn **More info** rồi **Run anyway**.
-          - **macOS**: lần đầu mở, nhấp chuột phải vào app và chọn **Open**.
+          - **macOS**: lần đầu mở, Mac báo "could not verify". Bấm **Done**, vào **System Settings → Privacy & Security**, kéo xuống mục Security và bấm **Open Anyway** cạnh dòng VsScience (macOS 14 trở về trước: nhấp chuột phải vào app → **Open**).
 
           Cần tài khoản Claude (Pro hoặc Max) để trò chuyện với Claude.
           NOTES

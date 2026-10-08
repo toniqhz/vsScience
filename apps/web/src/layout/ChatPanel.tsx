@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { AuthStatus, ClaudeProfileInfo } from '@ide/shared';
 import { api } from '../api/client';
 import { useWorkspace } from '../api/workspace';
@@ -10,6 +10,8 @@ import { DEFAULT_MODEL, findModel, type Effort, type PermissionMode } from '../c
 import { Transcript, agentLabel } from '../chat/Transcript';
 import { UsageCard } from '../chat/UsageCard';
 import { PackDialog, wasPackAsked } from '../chat/PackDialog';
+import { PlanPanel } from '../chat/PlanPanel';
+import { derivePlan, planVersion } from '../chat/plan';
 
 const SUGGESTIONS = [
   { icon: 'codicon-checklist', title: 'Soạn câu trắc nghiệm', prompt: '/soan-trac-nghiem' },
@@ -19,6 +21,7 @@ const SUGGESTIONS = [
 ];
 
 const PREFS_KEY = 'ide.chat.prefs';
+const PLAN_DISMISSED_KEY = 'ide.chat.planDismissed';
 type Prefs = { model: string; effort: Effort | null; mode: PermissionMode };
 
 function loadPrefs(): Prefs {
@@ -55,6 +58,8 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
   const [insertRequest, setInsertRequest] = useState<{ text: string; n: number } | null>(null);
   const focusComposer = (text = '') => setInsertRequest((r) => ({ text, n: (r?.n ?? 0) + 1 }));
   const scrollRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
 
   const model = findModel(prefs.model);
@@ -113,6 +118,53 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
       ro.disconnect();
       mo.disconnect();
     };
+  }, []);
+
+  const plan = useMemo(() => derivePlan(agent.items), [agent.items]);
+  const planKey = useMemo(() => planVersion(agent.items), [agent.items]);
+  // Người dùng bấm đóng: nhớ phiên bản kế hoạch lúc đóng; Claude cập nhật kế hoạch thì hiện lại.
+  const [dismissedPlan, setDismissedPlan] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(PLAN_DISMISSED_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const closePlan = () => {
+    setDismissedPlan(planKey);
+    try {
+      if (planKey) localStorage.setItem(PLAN_DISMISSED_KEY, planKey);
+    } catch {
+      // chỉ là tiện ích
+    }
+  };
+  // Xong hết các bước thì bỏ bảng khi lượt trả lời kết thúc (trong lượt vẫn hiện để thấy bước cuối được đánh dấu).
+  const planDone = plan.length > 0 && plan.every((s) => s.status === 'completed');
+  const showPlan = plan.length > 0 && planKey !== dismissedPlan && !(planDone && !agent.running);
+  /** Cuộn tới chỗ một bước của kế hoạch được cập nhật gần nhất và nháy sáng chỗ đó. */
+  const jumpTo = (key: string) => {
+    const el = scrollRef.current?.querySelector<HTMLElement>(`[data-keys~="${CSS.escape(key)}"]`);
+    if (!el) return;
+    stickToBottom.current = false;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.classList.remove('flash');
+    void el.offsetWidth;
+    el.classList.add('flash');
+  };
+
+  // Ô chat nổi đè lên cuối hội thoại (như VS Code): báo chiều cao của nó để hội thoại chừa đủ chỗ cuộn
+  // dòng cuối lên trên ô chat.
+  useEffect(() => {
+    const wrap = composerRef.current;
+    const panel = panelRef.current;
+    if (!wrap || !panel) return;
+    const ro = new ResizeObserver(() => {
+      panel.style.setProperty('--composer-h', `${wrap.offsetHeight}px`);
+      const el = scrollRef.current;
+      if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(wrap);
+    return () => ro.disconnect();
   }, []);
 
   const local = useCallback((node: LocalNode) => dispatch({ type: 'local', node }), []);
@@ -189,7 +241,8 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
   );
 
   return (
-    <div className="chat-panel">
+    <div className="chat-panel" ref={panelRef}>
+      {showPlan && <PlanPanel steps={plan} onJump={jumpTo} onClose={closePlan} />}
       <div
         className="chat-scroll"
         ref={scrollRef}
@@ -200,7 +253,7 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
       >
         {agent.items.length === 0 ? (
           <div className="chat-column chat-welcome">
-            <span className="codicon codicon-sparkle chat-logo" />
+            <img className="chat-logo" src="/logo.png" alt="VsScience" />
             <h1>Hôm nay bạn muốn làm gì?</h1>
             <p className="chat-subtitle">
               Claude đọc tài liệu trong thư mục của bạn, soạn câu hỏi kèm số trang và sửa đề thi. Gõ <kbd>@</kbd> để nhắc
@@ -243,7 +296,7 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
           />
         )}
       </div>
-      <div className="chat-column composer-wrap">
+      <div className="chat-column composer-wrap" ref={composerRef}>
         <Composer
           activePath={activePath}
           model={model}

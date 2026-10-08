@@ -12,6 +12,8 @@ interface WorkspaceState {
   connected: boolean;
   /** Tăng mỗi khi danh sách phiên Claude đổi. */
   sessionsRev: number;
+  /** Tăng mỗi khi danh sách artifact (trang Claude đã đăng) đổi. */
+  artifactsRev: number;
   /** Tăng mỗi khi file hoặc bản lưu đổi (để tải lại danh sách thay đổi). */
   changesRev: number;
   refresh: () => void;
@@ -34,6 +36,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [sessionsRev, setSessionsRev] = useState(0);
+  const [artifactsRev, setArtifactsRev] = useState(0);
   const [changesRev, setChangesRev] = useState(0);
   const [planUsage, setPlanUsage] = useState<PlanUsage | null>(null);
   const [packs, setPacks] = useState<PackInfo[] | null>(null);
@@ -84,6 +87,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       (event) => {
         if (event.type === 'sessions-changed') {
           setSessionsRev((n) => n + 1);
+          return;
+        }
+        if (event.type === 'artifacts-changed') {
+          setArtifactsRev((n) => n + 1);
           return;
         }
         if (event.type === 'pack') {
@@ -143,6 +150,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       error,
       connected,
       sessionsRev,
+      artifactsRev,
       changesRev,
       refresh: loadTree,
       onFileChange: (path, listener) => {
@@ -164,7 +172,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       refreshUsage,
       packs,
     }),
-    [info, tree, error, connected, sessionsRev, changesRev, loadTree, planUsage, refreshUsage, packs],
+    [info, tree, error, connected, sessionsRev, artifactsRev, changesRev, loadTree, planUsage, refreshUsage, packs],
   );
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

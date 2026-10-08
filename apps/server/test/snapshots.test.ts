@@ -44,7 +44,7 @@ beforeAll(async () => {
   writeFileSync(path.join(root, 'Đề thi', 'de.docx'), original);
   writeFileSync(path.join(root, 'sach.pdf'), '%PDF-1.4 cũ');
   writeFileSync(path.join(root, '.an', 'x.docx'), 'ẩn');
-  writeFileSync(path.join(root, 'ghi-chu.txt'), 'không theo dõi');
+  writeFileSync(path.join(root, 'nen.zip'), 'không theo dõi');
   snaps = new Snapshots(path.join(base, 'kho'));
   await snaps.open(root);
 });
@@ -64,7 +64,7 @@ describe('bản lưu', () => {
     writeFileSync(path.join(root, 'diem.xlsx'), xlsx([{ ref: 'A1', text: 'Tổng' }, { ref: 'B1', formula: 'SUM(B2:B3)', value: '17' }]));
     unlinkSync(path.join(root, 'sach.pdf'));
     writeFileSync(path.join(root, '.an', 'x.docx'), 'ẩn 2');
-    writeFileSync(path.join(root, 'ghi-chu.txt'), 'đổi');
+    writeFileSync(path.join(root, 'nen.zip'), 'đổi');
     expect((await snaps.status()).files).toEqual([
       // Sắp theo tiếng Việt: "Đề" đứng sau "D", trước "s".
       { path: 'diem.xlsx', status: 'added' },
@@ -170,7 +170,7 @@ describe('bản lưu', () => {
     expect(await snaps.restoreSnapshot(first!.id)).toEqual({ restored: 0, removed: 1, backup: 'Trước khi khôi phục về bản: Bản đầu tiên' });
     expect(existsSync(path.join(root, 'diem.xlsx'))).toBe(false);
     expect(existsSync(path.join(root, 'sach.pdf'))).toBe(true);
-    expect(existsSync(path.join(root, 'ghi-chu.txt'))).toBe(true); // file không theo dõi không bị đụng tới
+    expect(existsSync(path.join(root, 'nen.zip'))).toBe(true); // file không theo dõi không bị đụng tới
 
     // Hoàn tác: khôi phục cả thư mục về bản mới nhất trước đó (đề đã sửa câu 1 và diem.xlsx).
     expect(await snaps.restoreSnapshot(latest!.id)).toMatchObject({ restored: 2, removed: 0 });

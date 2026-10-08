@@ -21,6 +21,7 @@ function configureEnv() {
   process.env.IDE_WEB_DIST ??= path.join(resources, 'web');
   process.env.IDE_CLAUDE_BIN ??= path.join(resources, 'claude', exe);
   process.env.IDE_CLAUDE_PROFILE ??= path.join(resources, 'profile');
+  process.env.IDE_TOOLS_DIR ??= path.join(resources, 'tools');
   // Python portable có sẵn thư viện xử lý Word/Excel/PDF (không có khi chạy thử từ repo chưa build).
   const python = path.join(resources, 'python');
   if (existsSync(python)) process.env.IDE_PYTHON_HOME ??= python;
@@ -71,6 +72,8 @@ async function smokeTest(outFile: string) {
         "d = docx.Document(); d.add_paragraph('Đề kiểm tra — Câu 1'); d.save(p)",
         "print(docx.Document(p).paragraphs[0].text, '|', sys.version.split()[0], '|', sys.executable)",
         'os.remove(p)',
+        // PDF mẫu cho bước kiểm tra công cụ đọc PDF bên dưới.
+        "pdf = fitz.open(); pdf.new_page().insert_text((72, 72), 'Chuong 1: Vu tru'); pdf.save(os.path.join(tempfile.gettempdir(), 'kiem-tra-sach.pdf'))",
       ].join('\n');
       const script = path.join(tmpdir(), `vsscience-check-${process.pid}.py`);
       writeFileSync(script, check);
@@ -81,6 +84,13 @@ async function smokeTest(outFile: string) {
           : ['/bin/sh', ['-c', `python '${script}'`]];
       const { stdout } = await promisify(execFile)(shellExe, shellArgs, { env, timeout: 120_000 });
       result.python = stdout.trim();
+      // Công cụ đọc PDF của app, gọi đúng dạng lệnh Claude dùng.
+      const pdfTool = path.join(process.env.IDE_TOOLS_DIR!, 'pdf.py');
+      const samplePdf = path.join(tmpdir(), 'kiem-tra-sach.pdf');
+      const pdfCmd = `python '${pdfTool}' text '${samplePdf}' --pages 1`;
+      const [pdfSh, pdfArgs] =
+        process.platform === 'win32' ? ['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', pdfCmd]] : ['/bin/sh', ['-c', pdfCmd]];
+      result.pdfTool = (await promisify(execFile)(pdfSh, pdfArgs, { env, timeout: 60_000 })).stdout.trim();
       const headers = { authorization: `Bearer ${config.token}`, 'content-type': 'application/json' };
       result.packs = await fetch(`http://127.0.0.1:${port}/api/packs`, { headers }).then((r) => r.json());
       // --smoke-test-packs: cài thật gói phân tích số liệu từ PyPI (vào thư mục tạm) rồi chạy thử.

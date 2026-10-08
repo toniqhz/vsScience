@@ -5,29 +5,66 @@ import type { FileDiff, FileKind } from '@ide/shared';
 import { api } from '../api/client';
 import { useWorkspace } from '../api/workspace';
 import { DiffView } from '../chat/Transcript';
-import { FILE_KIND_META, baseName } from '../fileTypes';
+import { baseName } from '../fileTypes';
 import { STATUS_META, restoreSummary } from '../sidebar/ChangesView';
+import { ArtifactViewer } from '../viewers/ArtifactViewer';
 import { ExcelViewer } from '../viewers/ExcelViewer';
 import { OpenExternalButton } from '../viewers/OpenExternalButton';
+import { ImageViewer } from '../viewers/ImageViewer';
 import { PdfViewer } from '../viewers/PdfViewer';
+import { TextViewer } from '../viewers/TextViewer';
 import { WordViewer } from '../viewers/WordViewer';
 import { useWorkbench, type SnapshotRef } from '../workbenchContext';
 
 export type FilePanelParams = { path: string; kind: FileKind };
 export type DiffPanelParams = { path: string; snapshot?: SnapshotRef };
+export type ArtifactPanelParams = { artifactId: string; title: string; url: string | null };
+
+function ArtifactPanel({ params }: IDockviewPanelProps<ArtifactPanelParams>) {
+  return <ArtifactViewer id={params.artifactId} title={params.title} url={params.url} />;
+}
 
 function FilePanel({ params }: IDockviewPanelProps<FilePanelParams>) {
-  if (params.kind === 'pdf') return <PdfViewer path={params.path} />;
-  if (params.kind === 'excel') return <ExcelViewer path={params.path} />;
-  if (/\.docx$/i.test(params.path)) return <WordViewer path={params.path} />;
-  return (
-    <div className="placeholder-panel">
-      <span className={`codicon ${FILE_KIND_META[params.kind].icon} placeholder-icon kind-${params.kind}`} />
-      <p>Chưa xem trước được file Word đời cũ (.doc). Mở bằng Word để xem, sửa, hoặc lưu lại thành .docx.</p>
-      <OpenExternalButton path={params.path} app="Word" primary />
-    </div>
-  );
+  switch (params.kind) {
+    case 'pdf':
+      return <PdfViewer path={params.path} />;
+    case 'excel':
+      return <ExcelViewer path={params.path} />;
+    case 'markdown':
+    case 'text':
+    case 'html':
+      return <TextViewer path={params.path} kind={params.kind} />;
+    case 'image':
+      return <ImageViewer path={params.path} />;
+    case 'word':
+      if (/\.docx$/i.test(params.path)) return <WordViewer path={params.path} />;
+      return (
+        <div className="placeholder-panel">
+          <span className="codicon codicon-file-text placeholder-icon kind-word" />
+          <p>Chưa xem trước được file Word đời cũ (.doc). Mở bằng Word để xem, sửa, hoặc lưu lại thành .docx.</p>
+          <OpenExternalButton path={params.path} app="Word" primary />
+        </div>
+      );
+    default:
+      // File khác (zip, video, âm thanh…): mở bằng ứng dụng trên máy. File chương trình/script thì không mở.
+      return (
+        <div className="placeholder-panel">
+          <span className="codicon codicon-file placeholder-icon" />
+          {EXECUTABLE.test(params.path) ? (
+            <p>Đây là file chương trình hoặc script. App không mở loại file này vì mở tức là máy sẽ chạy nó.</p>
+          ) : (
+            <>
+              <p>Chưa xem trước được loại file này trong app.</p>
+              <OpenExternalButton path={params.path} app="ứng dụng mặc định" primary />
+            </>
+          )}
+        </div>
+      );
+  }
 }
+
+/** Khớp danh sách file chạy được ở server (không mở bằng ứng dụng ngoài). */
+const EXECUTABLE = /\.(exe|msi|bat|cmd|com|scr|pif|ps1|psm1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|jar|py|pyw|sh|command|app|pkg|dmg|reg|cpl|url)$/i;
 
 function Watermark() {
   return (
@@ -171,7 +208,7 @@ function WorkingDiffPanel({ path }: { path: string }) {
   );
 }
 
-const components = { file: FilePanel, diff: DiffPanel };
+const components = { file: FilePanel, diff: DiffPanel, artifact: ArtifactPanel };
 
 export function EditorArea({ onReady }: { onReady: (api: DockviewApi) => void }) {
   return (

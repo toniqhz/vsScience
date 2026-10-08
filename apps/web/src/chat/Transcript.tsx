@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { FileChange } from '@ide/shared';
@@ -6,6 +6,8 @@ import { baseName } from '../fileTypes';
 import type { Item, LocalNode } from './agentStore';
 import { COMMANDS } from './commands';
 import { ContextCard } from './ContextMeter';
+import { derivePlan, PLAN_TOOLS, type PlanStep } from './plan';
+import { stepIcon } from './PlanPanel';
 
 const KIND_ICON: Record<string, string> = {
   pdf: 'codicon-file-pdf kind-pdf',
@@ -46,9 +48,15 @@ export function agentLabel(name: string): string {
   return AGENT_LABELS[name] ?? name;
 }
 
+/** Đang trả lời: chỉ hiện các dòng đã viết xong, dòng đang viết dở hiện khi xuống dòng (không kiểu gõ từng chữ). */
+function completeLines(text: string): string {
+  return text.slice(0, text.lastIndexOf('\n') + 1);
+}
+
 function AssistantText({ text, streaming }: { text: string; streaming: boolean }) {
+  if (streaming) text = completeLines(text);
   return (
-    <div className={`msg-assistant ${streaming ? 'is-streaming' : ''}`}>
+    <div className="msg-assistant">
       <Markdown
         remarkPlugins={[remarkGfm]}
         components={{ a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer">{children}</a> }}
@@ -173,20 +181,84 @@ function FileChangeCard({
   );
 }
 
-function TodoList({ todos }: { todos: { content?: string; status?: string; activeForm?: string }[] }) {
-  return (
-    <div className="todo-list">
-      <div className="todo-title">
-        <span className="codicon codicon-checklist" /> Việc cần làm
+/** Lệnh gọi công cụ đọc PDF của app (python ".../pdf.py" text "file.pdf" --pages 3-7). */
+function pdfToolCall(command: string): { sub: string; file: string; pages?: string; query?: string } | null {
+  const m = /^\s*(?:&\s*)?\S*python[\d.]*(?:\.exe)?["']?\s+["']?[^"'\s]*?[^"']*pdf\.py["']?\s+(info|text|search|render)\s+(?:"([^"]+)"|'([^']+)'|(\S+))(.*)$/i.exec(command);
+  if (!m) return null;
+  const rest = m[5] ?? '';
+  const q = /^\s*(?:"([^"]+)"|'([^']+)'|([^-\s]\S*))/.exec(rest);
+  return {
+    sub: m[1]!.toLowerCase(),
+    file: m[2] ?? m[3] ?? m[4] ?? '',
+    pages: /--pages\s+(\S+)/.exec(rest)?.[1]?.replace(/["']/g, ''),
+    query: m[1] === 'search' ? q?.slice(1).find(Boolean) : undefined,
+  };
+}
+
+type ToolEntry = Extract<Item, { type: 'tool' }>;
+
+/** Dòng ngắn trong hội thoại khi Claude lập hoặc cập nhật kế hoạch (bảng đầy đủ ghim ở đầu khung chat). */
+type Todo = { content?: string; status?: string };
+
+/** Tóm tắt một lần TodoWrite (mỗi lần ghi là cả danh sách) bằng phần khác so với lần trước. */
+function todoChanges(prev: Todo[] | null, next: Todo[]): string {
+  if (!prev) return `Lập kế hoạch ${next.length} bước`;
+  const parts: string[] = [];
+  next.forEach((t, i) => {
+    const before = prev.find((p) => p.content === t.content);
+    if (!before) parts.push(`thêm bước ${i + 1}`);
+    else if (before.status !== t.status)
+      parts.push(`${t.status === 'completed' ? 'xong' : t.status === 'in_progress' ? 'bắt đầu' : 'mở lại'} bước ${i + 1}`);
+  });
+  const removed = prev.filter((p) => !next.some((t) => t.content === p.content)).length;
+  if (removed) parts.push(`bỏ ${removed} bước`);
+  if (!parts.length) return 'Cập nhật kế hoạch';
+  const text = parts.join(' · ');
+  return text[0]!.toUpperCase() + text.slice(1);
+}
+
+function PlanNote({ entries, steps, prevTodos }: { entries: ToolEntry[]; steps: Map<string, PlanStep>; prevTodos: Todo[] | null }) {
+  const first = entries[0]!;
+  const keys = entries.map((e) => e.key).join(' ');
+  if (first.name === 'TodoWrite') {
+    const todos = first.input.todos as Todo[];
+    const current = todos.find((t) => t.status === 'in_progress');
+    return (
+      <div className="plan-note" data-keys={keys}>
+        <span className="codicon codicon-checklist" />
+        <span>
+          {todoChanges(prevTodos, todos)}
+          {current?.content && <span className="plan-note-detail"> · đang làm: {current.content}</span>}
+        </span>
       </div>
-      {todos.map((t, i) => (
-        <div key={i} className={`todo-item todo-${t.status}`}>
-          <span
-            className={`codicon ${t.status === 'completed' ? 'codicon-pass' : t.status === 'in_progress' ? 'codicon-circle-filled' : 'codicon-circle-large-outline'}`}
-          />
-          <span>{t.status === 'in_progress' ? (t.activeForm ?? t.content) : t.content}</span>
-        </div>
-      ))}
+    );
+  }
+  if (first.name === 'TaskCreate') {
+    const subjects = entries.map((e) => str(e.input.subject)).filter(Boolean);
+    return (
+      <div className="plan-note" data-keys={keys}>
+        <span className="codicon codicon-checklist" />
+        <span>
+          {subjects.length === 1 ? 'Thêm bước vào kế hoạch: ' : `Lập kế hoạch ${subjects.length} bước: `}
+          <span className="plan-note-detail">{subjects.join(' · ')}</span>
+        </span>
+      </div>
+    );
+  }
+  const id = str(first.input.taskId).replace(/^#/, '');
+  const status = str(first.input.status);
+  const step = steps.get(id);
+  const n = step ? [...steps.keys()].indexOf(id) + 1 : null;
+  const label =
+    status === 'completed' ? 'Xong bước' : status === 'in_progress' ? 'Bắt đầu bước' : status === 'deleted' ? 'Bỏ bước' : status === 'pending' ? 'Mở lại bước' : 'Sửa bước';
+  return (
+    <div className={`plan-note is-${status || 'edit'}`} data-keys={keys}>
+      <span className={`codicon ${status === 'deleted' ? 'codicon-trash' : stepIcon((status || 'pending') as PlanStep['status'])}`} />
+      <span>
+        {label}
+        {n ? ` ${n}` : ''}
+        {(step?.subject ?? str(first.input.subject)) && <span className="plan-note-detail">: {step?.subject ?? str(first.input.subject)}</span>}
+      </span>
     </div>
   );
 }
@@ -215,7 +287,7 @@ function ToolItem({ item, running, onOpenFile }: { item: Extract<Item, { type: '
       />
     );
   }
-  if (name === 'TodoWrite' && Array.isArray(input.todos)) return <TodoList todos={input.todos as never} />;
+  if (PLAN_TOOLS.has(name)) return null;
 
   const outputBody = output ? <Pre>{output}</Pre> : undefined;
   switch (name) {
@@ -228,12 +300,31 @@ function ToolItem({ item, running, onOpenFile }: { item: Extract<Item, { type: '
     case 'Glob':
       return <ToolRow icon="codicon-search" title="Tìm file" detail={str(input.pattern)} pending={pending} isError={isError}>{outputBody}</ToolRow>;
     case 'Bash':
-    case 'PowerShell':
+    case 'PowerShell': {
+      const pdf = pdfToolCall(str(input.command));
+      if (pdf) {
+        const name = pdf.file.split(/[\\/]/).pop() ?? pdf.file;
+        const pages = pdf.pages ? ` · trang ${pdf.pages.replace(/-/g, '–')}` : '';
+        const [icon, title, detail] =
+          pdf.sub === 'info'
+            ? ['codicon-list-tree', 'Xem mục lục PDF', name]
+            : pdf.sub === 'search'
+              ? ['codicon-search', 'Tìm trong PDF', `“${pdf.query ?? ''}” · ${name}`]
+              : pdf.sub === 'render'
+                ? ['codicon-file-media', 'Xem trang PDF dạng ảnh', `${name}${pages}`]
+                : ['codicon-eye', 'Đọc PDF', `${name}${pages}`];
+        return (
+          <ToolRow icon={icon} title={title} detail={detail} pending={pending} isError={isError}>
+            {outputBody}
+          </ToolRow>
+        );
+      }
       return (
         <ToolRow icon="codicon-terminal" title="Chạy lệnh" detail={str(input.description)} pending={pending} isError={isError}>
           <Pre>{`$ ${str(input.command)}${output ? `\n\n${output}` : ''}`}</Pre>
         </ToolRow>
       );
+    }
     case 'WebSearch':
       return <ToolRow icon="codicon-globe" title="Tìm trên web" detail={str(input.query)} pending={pending} isError={isError}>{outputBody}</ToolRow>;
     case 'WebFetch':
@@ -252,6 +343,16 @@ function ToolItem({ item, running, onOpenFile }: { item: Extract<Item, { type: '
         >
           {/* Báo cáo của trợ lý phụ là Markdown (danh sách vấn đề, mức độ…). */}
           {output ? <AssistantText text={output} streaming={false} /> : undefined}
+        </ToolRow>
+      );
+    }
+    case 'Artifact': {
+      const action = str(input.action) || 'publish';
+      if (action !== 'publish') return <ToolRow icon="codicon-preview" title="Xem artifact" detail={action} pending={pending} isError={isError}>{outputBody}</ToolRow>;
+      const file = str(input.file_path).split(/[\\/]/).pop() ?? '';
+      return (
+        <ToolRow icon="codicon-preview" title="Tạo artifact" detail={`${str(input.title) || file} · xem ở mục Artifact bên trái`} pending={pending} isError={isError}>
+          {outputBody}
         </ToolRow>
       );
     }
@@ -437,6 +538,83 @@ function LocalItem({ node }: { node: LocalNode }) {
   }
 }
 
+type UserItem = Extract<Item, { type: 'user' }>;
+
+/**
+ * Câu hỏi của người dùng, ghim ở đầu khung khi cuộn qua phần trả lời của nó (như Claude Code trong VS Code).
+ * Đang ghim thì thu còn 2 dòng; bấm vào để cuộn về đầu lượt.
+ */
+function StickyUser({ item: it }: { item: UserItem }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [stuck, setStuck] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    const root = el?.closest('.chat-scroll');
+    const turn = el?.parentElement;
+    if (!el || !root || !turn) return;
+    // Đang ghim: lượt này đã bắt đầu phía trên đỉnh khung, còn câu hỏi đang nằm sát đỉnh.
+    const check = () => {
+      const top = root.getBoundingClientRect().top;
+      const r = el.getBoundingClientRect();
+      setStuck(turn.getBoundingClientRect().top < top - 2 && r.top <= top + 1 && r.bottom > top);
+    };
+    check();
+    root.addEventListener('scroll', check, { passive: true });
+    return () => root.removeEventListener('scroll', check);
+  }, []);
+  return (
+    <div ref={ref} className={`msg-user-sticky ${stuck ? 'is-stuck' : ''}`}>
+      <div
+        className="msg-user"
+        title={stuck ? 'Về đầu câu hỏi này' : undefined}
+        onClick={() => stuck && ref.current?.parentElement?.scrollIntoView({ block: 'start', behavior: 'smooth' })}
+      >
+        <div className="msg-user-text">{it.text}</div>
+        {it.files.length > 0 && (
+          <div className="msg-files">
+            {it.files.map((f) => (
+              <span key={f} className="attachment" title={f}>
+                <span className={`codicon ${fileIcon(f)}`} />
+                {baseName(f)}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Mục không hiển thị gì (công cụ ghi kế hoạch đã gộp vào dòng khác, kết quả lượt không đổi file…). */
+function isHidden(it: Item): boolean {
+  if (it.type === 'tool') return PLAN_TOOLS.has(it.name) || it.name === 'ExitPlanMode';
+  if (it.type === 'result') return !it.interrupted && !it.isError && it.changes.length === 0;
+  // Câu trả lời mới bắt đầu, chưa xong dòng nào: chưa hiện (vẫn có dòng "Claude đang làm việc…").
+  if (it.type === 'text') return it.streaming && !completeLines(it.text).trim();
+  return false;
+}
+
+/** Màu chấm trên đường timeline bên trái (như Claude Code trong VS Code). */
+type Dot = 'text' | 'ok' | 'error' | 'pending' | 'ask' | 'muted';
+
+function dotOf(it: Item | ToolEntry[], running: boolean): Dot {
+  if (Array.isArray(it)) return 'ok';
+  switch (it.type) {
+    case 'text':
+      return 'text';
+    case 'tool':
+      return it.result ? (it.result.isError ? 'error' : 'ok') : running ? 'pending' : 'muted';
+    case 'permission':
+      return it.allowed === undefined ? 'ask' : it.allowed ? 'ok' : 'error';
+    case 'result':
+      return it.isError ? 'error' : it.interrupted ? 'muted' : 'ok';
+    case 'error':
+      return 'error';
+    default:
+      return 'muted';
+  }
+}
+
 export function Transcript({
   items,
   running,
@@ -449,50 +627,73 @@ export function Transcript({
   onPermission: (id: string, allow: boolean, always: boolean) => void;
 }) {
   const waitingPermission = items.some((it) => it.type === 'permission' && it.allowed === undefined);
+  const steps = new Map(derivePlan(items).map((st) => [st.id, st]));
+  // Các bước Claude tạo liền nhau gộp thành một dòng "Lập kế hoạch N bước".
+  const units: (Item | ToolEntry[])[] = [];
+  const prevTodos = new Map<string, Todo[] | null>();
+  let lastTodos: Todo[] | null = null;
+  for (const it of items) {
+    if (it.type === 'tool' && it.name === 'TodoWrite' && Array.isArray(it.input.todos)) {
+      prevTodos.set(it.key, lastTodos);
+      lastTodos = it.input.todos as Todo[];
+      units.push([it]);
+    } else if (it.type === 'tool' && (it.name === 'TaskCreate' || it.name === 'TaskUpdate')) {
+      const last = units[units.length - 1];
+      if (it.name === 'TaskCreate' && Array.isArray(last) && last[0]!.name === 'TaskCreate') last.push(it);
+      else units.push([it]);
+    } else if (!isHidden(it)) units.push(it);
+  }
+  // Chia theo lượt: mỗi câu hỏi cùng phần trả lời của nó (để câu hỏi ghim được trong phạm vi lượt đó).
+  const turns: { key: string; user?: UserItem; units: (Exclude<Item, UserItem> | ToolEntry[])[] }[] = [];
+  for (const u of units) {
+    if (!Array.isArray(u) && u.type === 'user') turns.push({ key: u.key, user: u, units: [] });
+    else {
+      if (turns.length === 0) turns.push({ key: 'dau', units: [] });
+      turns[turns.length - 1]!.units.push(u);
+    }
+  }
+  if (turns.length === 0 && running) turns.push({ key: 'dau', units: [] });
   return (
     <div className="chat-column transcript">
-      {items.map((it) => {
-        switch (it.type) {
-          case 'user':
-            return (
-              <div key={it.key} className="msg-user">
-                <div className="msg-user-text">{it.text}</div>
-                {it.files.length > 0 && (
-                  <div className="msg-files">
-                    {it.files.map((f) => (
-                      <span key={f} className="attachment" title={f}>
-                        <span className={`codicon ${fileIcon(f)}`} />
-                        {baseName(f)}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          case 'text':
-            return <AssistantText key={it.key} text={it.text} streaming={it.streaming} />;
-          case 'tool':
-            return <ToolItem key={it.key} item={it} running={running} onOpenFile={onOpenFile} />;
-          case 'permission':
-            return <PermissionCard key={it.key} item={it} onAnswer={onPermission} />;
-          case 'result':
-            return <ResultItem key={it.key} item={it} onOpenFile={onOpenFile} />;
-          case 'error':
-            return (
-              <div key={it.key} className="msg-notice tone-warn">
-                <span className="codicon codicon-warning" />
-                {it.message}
-              </div>
-            );
-          case 'local':
-            return <LocalItem key={it.key} node={it.node} />;
-        }
-      })}
-      {running && !waitingPermission && (
-        <div className="working">
-          <span className="codicon codicon-loading codicon-modifier-spin" /> Claude đang làm việc…
+      {turns.map((t, i) => (
+        <div key={t.key} className="turn">
+          {t.user && <StickyUser item={t.user} />}
+          {t.units.map((it) => (
+            // Mọi thứ Claude làm nằm trên đường timeline bên trái.
+            <div key={Array.isArray(it) ? it[0]!.key : it.key} className={`tl-item dot-${dotOf(it, running)}`}>
+              {renderUnit(it)}
+            </div>
+          ))}
+          {i === turns.length - 1 && running && !waitingPermission && (
+            <div className="tl-item dot-pending">
+              <div className="working">Claude đang làm việc…</div>
+            </div>
+          )}
         </div>
-      )}
+      ))}
     </div>
   );
+
+  function renderUnit(it: Exclude<Item, UserItem> | ToolEntry[]): ReactNode {
+    if (Array.isArray(it)) return <PlanNote entries={it} steps={steps} prevTodos={prevTodos.get(it[0]!.key) ?? null} />;
+    switch (it.type) {
+      case 'text':
+        return <AssistantText text={it.text} streaming={it.streaming} />;
+      case 'tool':
+        return <ToolItem item={it} running={running} onOpenFile={onOpenFile} />;
+      case 'permission':
+        return <PermissionCard item={it} onAnswer={onPermission} />;
+      case 'result':
+        return <ResultItem item={it} onOpenFile={onOpenFile} />;
+      case 'error':
+        return (
+          <div className="msg-notice tone-warn">
+            <span className="codicon codicon-warning" />
+            {it.message}
+          </div>
+        );
+      case 'local':
+        return <LocalItem node={it.node} />;
+    }
+  }
 }

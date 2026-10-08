@@ -1,16 +1,17 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
-import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import Fastify, { type FastifyRequest } from 'fastify';
 import websocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
 import type { ServerEvent } from '@ide/shared';
 import { AgentSession, type QueryFn, type SessionApi } from './agent.js';
+import { ArtifactStore, artifactTitle, artifactUrl, createdFilesFromMessages } from './artifacts.js';
 import { ClaudeAuth } from './claude-auth.js';
 import { Snapshots } from './snapshots.js';
 import type { Config } from './config.js';
-import { MIME_BY_EXT, PathError, fileKind, resolveInWorkspace, toRelPosix, validateNewName } from './paths.js';
+import { MIME_BY_EXT, PathError, isExecutable, resolveInWorkspace, toRelPosix, validateNewName } from './paths.js';
 import { emptyDocx, emptyXlsx } from './templates.js';
 import { openExternal } from './openExternal.js';
 import { PlanUsageMonitor, type UsageQueryFn } from './usage.js';
@@ -40,7 +41,7 @@ export type AppConfig = Pick<
   Config,
   'initialWorkspace' | 'token' | 'webDist' | 'statePath' | 'claudeBin' | 'snapshotsDir' | 'usePolling'
 > &
-  Partial<Pick<Config, 'profileDir' | 'scratchDir'>>;
+  Partial<Pick<Config, 'profileDir' | 'scratchDir' | 'artifactsDir'>>;
 
 export async function buildApp(
   config: AppConfig,
@@ -64,11 +65,22 @@ export async function buildApp(
     for (const s of sockets) s.send(data);
   }
 
+  // File mới xuất hiện trong thư mục khi Claude đang làm (và vài giây sau, vì trình theo dõi báo trễ):
+  // coi là sản phẩm của Claude, đưa vào mục Artifact.
+  const AFTER_TURN_MS = 8000;
+  let claudeBusyUntil = 0;
+  let onClaudeFiles: (paths: string[]) => void = () => {};
   const workspace = new WorkspaceManager({
     statePath: config.statePath,
     usePolling: config.usePolling,
     watch: opts.watch ?? true,
-    emit: broadcast,
+    emit: (event) => {
+      broadcast(event);
+      if (event.type === 'fs' && Date.now() <= claudeBusyUntil) {
+        const added = event.changes.filter((c) => c.event === 'add').map((c) => c.path);
+        if (added.length) onClaudeFiles(added);
+      }
+    },
   });
   await workspace.open(config.initialWorkspace);
   app.addHook('onClose', () => workspace.close());
@@ -85,16 +97,39 @@ export async function buildApp(
   app.addHook('onClose', async () => auth.cancel());
   const planUsage = new PlanUsageMonitor(config.claudeBin, opts.usageQueryFn);
   const packs = new PackManager(pythonHome(), packsDir(), (pack) => broadcast({ type: 'pack', pack }));
+  // Trang (artifact) Claude đăng lên claude.ai: lưu bản sao HTML để xem lại trong app.
+  const artifacts = new ArtifactStore(config.artifactsDir ?? path.join(path.dirname(config.snapshotsDir), 'artifacts'));
+  const recordArtifact = async (input: Record<string, unknown>, output: string, cwd: string) => {
+    const file = typeof input.file_path === 'string' ? path.resolve(cwd, input.file_path) : null;
+    if (!file || !/\.html?$/i.test(file)) return;
+    const html = await readFile(file, 'utf8');
+    const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
+    await artifacts.record(cwd, {
+      title: artifactTitle(html, file, str(input.title)),
+      description: str(input.description),
+      url: artifactUrl(output),
+      fileName: path.basename(file),
+      html,
+    });
+    broadcast({ type: 'artifacts-changed' });
+  };
+  onClaudeFiles = (paths) =>
+    void artifacts
+      .recordFiles(workspace.root, paths.map((p) => ({ path: p })))
+      .then((added) => added && broadcast({ type: 'artifacts-changed' }))
+      .catch((err) => app.log.error(err));
   const agent = new AgentSession({
     cwd: () => workspace.root,
     claudeBin: config.claudeBin,
     emit: (event) => {
       broadcast({ type: 'agent', event });
+      if (event.kind === 'status') claudeBusyUntil = event.state === 'running' ? Infinity : Date.now() + AFTER_TURN_MS;
       // Mỗi lượt dùng thêm hạn mức: lấy số liệu mới cho ô hạn mức.
       if (event.kind === 'result') void planUsage.get(true).then((usage) => usage && broadcast({ type: 'usage', usage }));
     },
     replay: (events) => broadcast({ type: 'agent-replay', events }),
     onSessionsChanged: () => broadcast({ type: 'sessions-changed' }),
+    onArtifact: (input, output, cwd) => void recordArtifact(input, output, cwd).catch((err) => app.log.error(err)),
     // Tự lưu bản trước mỗi lượt để có thể hoàn tác đúng phần Claude đã sửa.
     beforeTurn: async (text) => {
       const saved = await snapshots.snapshot(`Trước khi Claude làm: ${text.replace(/\s+/g, ' ').slice(0, 80)}`);
@@ -251,6 +286,31 @@ export async function buildApp(
   app.get('/api/agent/context', async () => ({ usage: await agent.contextUsage() }));
 
   const sessionIdSchema = { type: 'string', pattern: '^[A-Za-z0-9-]{1,100}$' } as const;
+
+  app.get('/api/artifacts', async () => {
+    const cwd = workspace.root;
+    // Lần đầu với thư mục này: lấy lại các file Claude đã tạo trong các phiên trước.
+    await artifacts.backfill(cwd, async () => createdFilesFromMessages(cwd, await agent.allSessionMessages()));
+    return artifacts.list(cwd);
+  });
+  app.get<{ Querystring: { id: string } }>(
+    '/api/artifacts/content',
+    { schema: { querystring: { type: 'object', required: ['id'], properties: { id: sessionIdSchema } } } },
+    async (req, reply) => {
+      const html = await artifacts.content(workspace.root, req.query.id);
+      if (html === null) return reply.code(404).send({ error: 'Không còn bản lưu của trang này' });
+      return { html };
+    },
+  );
+  app.post<{ Body: { id: string } }>(
+    '/api/artifacts/delete',
+    { schema: { body: { type: 'object', required: ['id'], properties: { id: sessionIdSchema } } } },
+    async (req) => {
+      await artifacts.remove(workspace.root, req.body.id);
+      broadcast({ type: 'artifacts-changed' });
+      return { ok: true };
+    },
+  );
   app.get('/api/agent/sessions', async () => agent.listSessions());
   app.post<{ Body: { id: string } }>(
     '/api/agent/sessions/open',
@@ -343,7 +403,7 @@ export async function buildApp(
     const rel = req.query.path ?? '';
     const abs = await resolveInWorkspace(workspace.root, rel);
     const st = await stat(abs);
-    if (!st.isFile() || !fileKind(abs)) throw new PathError('Không hỗ trợ loại file này', 415);
+    if (!st.isFile()) throw new PathError('Không phải file', 415);
     const ext = path.extname(abs).toLowerCase();
     return reply
       .header('content-type', MIME_BY_EXT[ext] ?? 'application/octet-stream')
@@ -360,7 +420,8 @@ export async function buildApp(
     { schema: { body: { type: 'object', required: ['path'], properties: { path: { type: 'string', minLength: 1, maxLength: 4096 } } } } },
     async (req) => {
       const abs = await resolveInWorkspace(workspace.root, req.body.path);
-      if (!(await stat(abs)).isFile() || !fileKind(abs)) throw new PathError('Không hỗ trợ loại file này', 415);
+      if (!(await stat(abs)).isFile()) throw new PathError('Không phải file', 415);
+      if (isExecutable(abs)) throw new PathError('Không mở file chương trình hoặc script từ app (mở là máy sẽ chạy nó)', 415);
       await (opts.openExternal ?? openExternal)(abs);
       return { ok: true };
     },

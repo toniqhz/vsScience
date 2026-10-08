@@ -5,7 +5,8 @@ executableName: VsScience
 artifactName: VsScience-${os}-${arch}.${ext}
 directories:
   output: release
-  buildResources: build/icons
+  # Logo sản phẩm (icons/icon.png 512×512): electron-builder tự tạo .ico cho Windows và .icns cho Mac.
+  buildResources: icons
 files:
   - dist/**/*
   - package.json
@@ -21,6 +22,8 @@ extraResources:
     to: web
   - from: build/resources/profile
     to: profile
+  - from: build/resources/tools
+    to: tools
   - from: build/claude/${os}-${arch}
     to: claude
   - from: build/python/${os}-${arch}

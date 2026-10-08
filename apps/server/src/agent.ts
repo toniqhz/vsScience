@@ -23,6 +23,7 @@ import type { AgentBlock, AgentEvent, AgentMode, AgentSessionInfo, ContextUsage,
 import { cliEnv } from './claude-auth.js';
 import { FolderGuard, claudeScratchRoot } from './folderGuard.js';
 import type { ClaudeProfile } from './profile.js';
+import { parsePdfToolCommand, pdfToolPath, pdfToolPrompt } from './pdfTool.js';
 import { pythonHome, runtimeKey, runtimePrompt } from './runtime.js';
 
 /** Phần của Query (Agent SDK) mà phiên dùng tới — tách ra để test bằng phiên giả. */
@@ -87,7 +88,11 @@ function systemAppend(cwd: string, scratch: string | null): string {
 - Không đưa mã nguồn hay câu lệnh vào câu trả lời trừ khi người dùng hỏi. Khi cần chạy lệnh hay script để xử lý file, cứ làm rồi chỉ báo kết quả.
 - Khi trích dẫn tài liệu PDF, ghi rõ số trang.
 - Thư mục làm việc \`${cwd}\` chứa tài liệu PDF, Word, Excel của người dùng. Không để file tạm hay file rác trong đó; ${tmp}
-- Chỉ đọc, sửa, chạy lệnh với file trong thư mục làm việc và thư mục nháp. Nếu thật sự cần file ở ngoài, nói rõ với người dùng cần file nào và vì sao; người dùng sẽ được hỏi cho phép.`;
+- Chỉ đọc, sửa, chạy lệnh với file trong thư mục làm việc và thư mục nháp. Nếu thật sự cần file ở ngoài, nói rõ với người dùng cần file nào và vì sao; người dùng sẽ được hỏi cho phép.
+- Kế hoạch theo bước: mỗi khi đưa ra hoặc thống nhất với người dùng một chuỗi bước họ sẽ đi theo dần qua nhiều lượt (hướng dẫn cài đặt, lộ trình đọc sách theo chương hay theo tuần, soạn đề theo từng phần…), luôn ghi các bước đó bằng TaskCreate, mỗi bước một lần gọi, trong cùng lượt trả lời (nếu TaskCreate/TaskUpdate chưa nạp thì nạp bằng ToolSearch với query "select:TaskCreate,TaskUpdate"). Đây là danh sách của người dùng chứ không chỉ việc của bạn: app ghim nó ở đầu khung chat để họ theo dõi trong hội thoại dài. Viết bằng tiếng Việt cho người dùng đọc:
+  - subject: tên bước ngắn gọn.
+  - description: tóm tắt 1–3 câu nội dung bước — làm gì, cần gì, nội dung chính (ví dụ các chương và ý chính, file hay trang cần mở).
+  Cập nhật bằng TaskUpdate ngay khi có thay đổi: in_progress khi bắt đầu; completed khi xong (kể cả bước người dùng tự làm và báo đã xong), lúc đó viết lại description thành tóm tắt kết quả nếu có điều đáng ghi (đã chọn gì, rút ra gì, còn lưu ý gì); thêm hoặc bỏ bước khi kế hoạch đổi. Khi người dùng nói kết thúc, dừng hay bỏ kế hoạch (dù còn bước chưa làm), cập nhật mọi bước chưa xong thành deleted để app gỡ danh sách khỏi đầu khung chat. Việc đơn giản một hai bước thì không cần ghi.`;
 }
 
 /** Thư mục nháp riêng cho mỗi thư mục làm việc, nằm trong thư mục dữ liệu của app. */
@@ -119,6 +124,17 @@ function withLongForms(dirs: string[]): string[] {
 }
 
 const OUTPUT_LIMIT = 4000;
+
+/** Công cụ ghi kế hoạch của Claude Code; cho dùng tự do vì không đụng tới file. */
+const PLAN_TOOLS = new Set(['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TodoWrite']);
+
+/** Công cụ chỉ đọc: tự cho phép khi không đụng tới file ngoài phạm vi. */
+const READ_ONLY_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS']);
+
+function isPdfToolCall(toolName: string, input: Record<string, unknown>, tool: string): boolean {
+  const shell = toolName === 'Bash' ? 'posix' : toolName === 'PowerShell' ? 'powershell' : null;
+  return !!shell && typeof input.command === 'string' && parsePdfToolCommand(input.command, tool, shell) !== null;
+}
 /** Báo cáo của trợ lý phụ (ví dụ phản biện) được hiện dạng văn bản nên giữ dài hơn. */
 const AGENT_OUTPUT_LIMIT = 30000;
 
@@ -340,6 +356,8 @@ export class AgentSession {
       replay?: (events: AgentEvent[]) => void;
       /** Danh sách phiên đã đổi. */
       onSessionsChanged?: () => void;
+      /** Claude vừa đăng một trang (công cụ Artifact) thành công: đầu vào của công cụ và kết quả. */
+      onArtifact?: (input: Record<string, unknown>, output: string, cwd: string) => void;
       /** Chạy trước mỗi lượt Claude (ví dụ tự lưu bản). Lỗi ở đây không chặn lượt. */
       beforeTurn?: (text: string) => Promise<void>;
       /** Thư mục gốc chứa thư mục nháp của mỗi thư mục làm việc (script tạm của Claude). */
@@ -451,6 +469,15 @@ export class AgentSession {
     this.opts.onSessionsChanged?.();
   }
 
+  /** Nội dung mọi phiên của thư mục làm việc (để lấy lại các file Claude từng tạo). */
+  async allSessionMessages(): Promise<unknown[]> {
+    const cwd = this.opts.cwd();
+    const list = (await this.#sessions.list(cwd)).filter((s) => !s.cwd || s.cwd === cwd);
+    const all: unknown[] = [];
+    for (const s of list) all.push(...(await this.#sessions.messages(s.sessionId, cwd).catch(() => [])));
+    return all;
+  }
+
   async listSessions(): Promise<AgentSessionInfo[]> {
     const cwd = this.opts.cwd();
     const list = await this.#sessions.list(cwd);
@@ -542,14 +569,23 @@ export class AgentSession {
     const scratch = scratchFor(this.opts.scratchRoot, cwd);
     const tempBases = withLongForms([tmpdir()]);
     const roots = withLongForms([cwd, ...(scratch ? [scratch] : [])]).concat(tempBases.map((t) => claudeScratchRoot(cwd, process.platform, t)));
-    const extraAllowed = withLongForms([pythonHome(), path.dirname(this.opts.claudeBin)].filter((d): d is string => !!d && path.isAbsolute(d)));
+    const pdfTool = pdfToolPath();
+    const extraAllowed = withLongForms(
+      [pythonHome(), path.dirname(this.opts.claudeBin), path.dirname(pdfTool)].filter((d): d is string => !!d && path.isAbsolute(d)),
+    );
     const guard = new FolderGuard(() => roots, { extraAllowed });
     const canUseTool: CanUseTool = (toolName, toolInput, { signal, suggestions }) =>
       new Promise<PermissionResult>((resolve) => {
         const outside = FolderGuard.touchesFiles(toolName) ? guard.outside(toolName, toolInput, cwd) : [];
+        // Ghi kế hoạch không đụng tới file: luôn cho phép. Đọc file (Read/Grep/Glob, công cụ PDF của app)
+        // trong thư mục làm việc và thư mục nháp: cho phép ở mọi chế độ.
         // Chế độ "Tự động": tự cho chạy lệnh và sửa file, miễn là chỉ trong thư mục làm việc (và thư mục nháp).
         // Kế hoạch (ExitPlanMode) luôn cần người dùng duyệt.
-        if (this.#applied?.mode === 'auto' && outside.length === 0 && toolName !== 'ExitPlanMode') {
+        if (
+          PLAN_TOOLS.has(toolName) ||
+          (outside.length === 0 && (READ_ONLY_TOOLS.has(toolName) || isPdfToolCall(toolName, toolInput, pdfTool))) ||
+          (this.#applied?.mode === 'auto' && outside.length === 0 && toolName !== 'ExitPlanMode')
+        ) {
           resolve({ behavior: 'allow', updatedInput: toolInput });
           return;
         }
@@ -585,16 +621,21 @@ export class AgentSession {
         // App chưa có giao diện cho tác vụ nền: subagent (ví dụ phản biện) và lệnh dài phải chạy xong
         // trong lượt, để Claude có kết quả trước khi trả lời và không xin quyền sau khi lượt đã kết thúc.
         CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
+        // Bật công cụ ghi kế hoạch (TaskCreate / TaskUpdate…): app ghim kế hoạch ở đầu khung chat.
+        // Với Sonnet/Opus đời mới, CLI chỉ có TaskCreate/TaskUpdate khi bật cả hai biến (dạng deferred).
+        CLAUDE_CODE_ENABLE_TASKS: '1',
+        CLAUDE_CODE_ENABLE_TODO_TOOLS: '1',
       }),
       settingSources: ['user', 'project', 'local'],
       systemPrompt: {
         type: 'preset',
         preset: 'claude_code',
-        append: [systemAppend(cwd, scratch), runtimePrompt(), profile?.systemAppend].filter(Boolean).join('\n\n'),
+        append: [systemAppend(cwd, scratch), runtimePrompt(), pythonHome() ? pdfToolPrompt(pdfTool) : null, profile?.systemAppend].filter(Boolean).join('\n\n'),
       },
       ...(profile && Object.keys(profile.agents).length ? { agents: profile.agents } : {}),
       // Câu hỏi nhiều lựa chọn cần giao diện riêng — chưa hỗ trợ.
-      disallowedTools: ['AskUserQuestion'],
+      // TodoWrite (bản cũ) chỉ ghi được tên bước; TaskCreate có thêm phần mô tả để app hiện tóm tắt mỗi bước.
+      disallowedTools: ['AskUserQuestion', 'TodoWrite'],
       stderr: (data) => {
         this.#stderr.push(data);
         if (this.#stderr.length > 20) this.#stderr.shift();
@@ -736,6 +777,10 @@ export class AgentSession {
           const fileChange =
             fromResult ?? (r.is_error ? undefined : changeFromInput(this.#toolInputs.get(r.tool_use_id), output, this.#rel));
           this.#emit({ kind: 'tool-result', toolUseId: r.tool_use_id, isError: r.is_error === true, output, fileChange });
+          const used = this.#toolInputs.get(r.tool_use_id);
+          if (toolName === 'Artifact' && !r.is_error && used && (used.input.action ?? 'publish') === 'publish' && this.#cwd) {
+            this.opts.onArtifact?.(used.input, toolResultText(r.content), this.#cwd);
+          }
         }
         return;
       }

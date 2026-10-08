@@ -12,9 +12,9 @@ const AUTHOR = { name: 'VsScience', email: 'vsscience@localhost' };
 /** File lớn hơn mức này không đưa vào bản lưu. */
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
-/** Chỉ theo dõi file Word/Excel/PDF, bỏ qua file và thư mục ẩn. */
+/** Theo dõi tài liệu, file chữ và ảnh (không đưa zip, video… vào bản lưu); bỏ qua file và thư mục ẩn. */
 function tracked(filepath: string): boolean {
-  if (!fileKind(filepath)) return false;
+  if (fileKind(filepath) === 'other') return false;
   return !filepath.split('/').some(isHiddenName);
 }
 

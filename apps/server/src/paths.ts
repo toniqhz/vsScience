@@ -10,6 +10,17 @@ const KIND_BY_EXT: Record<string, FileKind> = {
   '.xlsm': 'excel',
   '.xls': 'excel',
   '.csv': 'excel',
+  // Ghi chú, bản tóm tắt, trang HTML mà Claude hay viết ra.
+  '.md': 'markdown',
+  '.markdown': 'markdown',
+  '.txt': 'text',
+  '.html': 'html',
+  '.htm': 'html',
+  ...Object.fromEntries(
+    ['.json', '.xml', '.yml', '.yaml', '.log', '.ini', '.tex', '.bib', '.ris', '.py', '.r', '.js', '.ts', '.css', '.sh', '.ps1', '.bat', '.tsv', '.srt']
+      .map((e) => [e, 'text' as const]),
+  ),
+  ...Object.fromEntries(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico'].map((e) => [e, 'image' as const])),
 };
 
 export const MIME_BY_EXT: Record<string, string> = {
@@ -20,7 +31,35 @@ export const MIME_BY_EXT: Record<string, string> = {
   '.xlsm': 'application/vnd.ms-excel.sheet.macroEnabled.12',
   '.xls': 'application/vnd.ms-excel',
   '.csv': 'text/csv; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
+  '.markdown': 'text/markdown; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+  // Trả HTML dưới dạng chữ: không để trang trong thư mục chạy cùng nguồn với app (app tự hiển thị trong khung cách ly).
+  '.html': 'text/plain; charset=utf-8',
+  '.htm': 'text/plain; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
+  // SVG có thể chứa script: trả dạng chữ, app tự hiển thị qua thẻ <img> (không chạy script).
+  '.svg': 'text/plain; charset=utf-8',
 };
+
+/** File chạy được (chương trình, script): không mở bằng ứng dụng mặc định từ app, vì mở tức là chạy. */
+const EXECUTABLE_EXT = new Set([
+  '.exe', '.msi', '.bat', '.cmd', '.com', '.scr', '.pif', '.ps1', '.psm1', '.vbs', '.vbe', '.js', '.jse', '.wsf', '.wsh',
+  '.hta', '.lnk', '.jar', '.py', '.pyw', '.sh', '.command', '.app', '.pkg', '.dmg', '.reg', '.cpl', '.url',
+]);
+
+export function isExecutable(name: string): boolean {
+  return EXECUTABLE_EXT.has(path.extname(name).toLowerCase());
+}
+
+/** File hệ thống mà File Explorer / Finder cũng ẩn. */
+const HIDDEN_SYSTEM_FILES = new Set(['desktop.ini', 'thumbs.db', 'ehthumbs.db', 'icon\r']);
 
 const IGNORED_NAMES = new Set([
   'node_modules',
@@ -29,13 +68,14 @@ const IGNORED_NAMES = new Set([
   'System Volume Information',
 ]);
 
-export function fileKind(name: string): FileKind | undefined {
-  return KIND_BY_EXT[path.extname(name).toLowerCase()];
+/** Mọi file đều hiện (như File Explorer); loại quyết định cách xem trong app. */
+export function fileKind(name: string): FileKind {
+  return KIND_BY_EXT[path.extname(name).toLowerCase()] ?? 'other';
 }
 
 /** Mục không bao giờ hiện cho người dùng: file ẩn, file khóa của Office/LibreOffice, thư mục hệ thống. */
 export function isHiddenName(name: string): boolean {
-  return name.startsWith('.') || name.startsWith('~$') || IGNORED_NAMES.has(name);
+  return name.startsWith('.') || name.startsWith('~$') || IGNORED_NAMES.has(name) || HIDDEN_SYSTEM_FILES.has(name.toLowerCase());
 }
 
 export class PathError extends Error {

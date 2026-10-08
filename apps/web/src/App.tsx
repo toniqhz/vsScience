@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Allotment, LayoutPriority } from 'allotment';
 import 'allotment/dist/style.css';
 import type { DockviewApi } from 'dockview-react';
-import type { ChangesResponse, TreeNode } from '@ide/shared';
+import type { ArtifactInfo, ChangesResponse, TreeNode } from '@ide/shared';
 import { api, hasToken } from './api/client';
 import { WorkspaceProvider, useWorkspace } from './api/workspace';
 import { Explorer } from './explorer/Explorer';
 import { ChatPanel } from './layout/ChatPanel';
-import { EditorArea, type DiffPanelParams, type FilePanelParams } from './layout/EditorArea';
+import { EditorArea, type ArtifactPanelParams, type DiffPanelParams, type FilePanelParams } from './layout/EditorArea';
 import { baseName } from './fileTypes';
+import { ArtifactsView } from './sidebar/ArtifactsView';
 import { ChangesView } from './sidebar/ChangesView';
 import { SearchView } from './sidebar/SearchView';
 import { SessionsView } from './sidebar/SessionsView';
@@ -30,13 +31,14 @@ function countFiles(node: TreeNode | undefined): number {
   return (node.children ?? []).reduce((n, c) => n + countFiles(c), 0);
 }
 
-type SideView = 'files' | 'search' | 'changes' | 'sessions';
+type SideView = 'files' | 'search' | 'changes' | 'sessions' | 'artifacts';
 
 const VIEWS: { id: SideView; icon: string; title: string }[] = [
   { id: 'files', icon: 'codicon-files', title: 'Thư mục' },
   { id: 'search', icon: 'codicon-search', title: 'Tìm kiếm' },
   { id: 'changes', icon: 'codicon-source-control', title: 'Thay đổi' },
   { id: 'sessions', icon: 'codicon-comment-discussion', title: 'Phiên Claude' },
+  { id: 'artifacts', icon: 'codicon-preview', title: 'Artifact (trang Claude đã tạo)' },
 ];
 
 function ActivityBar({
@@ -194,6 +196,23 @@ function Workbench() {
     api.addPanel({ id, component: 'diff', title, params });
   }, []);
 
+  /** Mở một artifact (trang Claude đã đăng) ở khung bên phải. */
+  const openArtifact = useCallback((a: ArtifactInfo) => {
+    // File trong thư mục: mở bằng khung xem file như khi bấm ở cây thư mục.
+    if (a.source === 'file' && a.path) return openPath(a.path);
+    const api = dockRef.current;
+    if (!api) return;
+    setFilesOpen(true);
+    const id = `artifact:${a.id}`;
+    const existing = api.getPanel(id);
+    if (existing) {
+      existing.api.setActive();
+      return;
+    }
+    const params: ArtifactPanelParams = { artifactId: a.id, title: a.title, url: a.url };
+    api.addPanel({ id, component: 'artifact', title: a.title, params });
+  }, [openPath]);
+
   const actions = useMemo(() => ({ openPath, openDiff }), [openPath, openDiff]);
 
   // Bấm icon đang mở thì đóng cột bên trái (như VS Code).
@@ -227,6 +246,9 @@ function Workbench() {
                 </div>
                 <div className="side-view" hidden={view !== 'sessions'}>
                   {view === 'sessions' && <SessionsView />}
+                </div>
+                <div className="side-view" hidden={view !== 'artifacts'}>
+                  {view === 'artifacts' && <ArtifactsView onOpen={openArtifact} />}
                 </div>
               </div>
             </Allotment.Pane>

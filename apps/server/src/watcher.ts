@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { watch } from 'chokidar';
 import type { FsEventType } from '@ide/shared';
-import { fileKind, isHiddenName, toRelPosix } from './paths.js';
+import { isHiddenName, toRelPosix } from './paths.js';
 
 export type Change = { event: FsEventType; path: string };
 
@@ -67,7 +67,6 @@ export function watchWorkspace(
   watcher.on('all', (event, absPath) => {
     if (!isFsEvent(event)) return;
     const isDirEvent = event === 'addDir' || event === 'unlinkDir';
-    if (!isDirEvent && !fileKind(absPath)) return;
     const rel = toRelPosix(root, absPath);
     if (rel === '') return;
     pending.push({ event, path: rel });

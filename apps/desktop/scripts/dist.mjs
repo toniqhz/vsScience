@@ -32,6 +32,8 @@ console.log('\n▸ Chuẩn bị tài nguyên');
 rmSync(resources, { recursive: true, force: true });
 mkdirSync(resources, { recursive: true });
 cpSync(path.join(repo, 'apps/web/dist'), path.join(resources, 'web'), { recursive: true });
+// Công cụ đọc PDF cho Claude (chạy bằng Python portable, thay cho pdftoppm).
+cpSync(path.join(repo, 'apps/server/tools'), path.join(resources, 'tools'), { recursive: true });
 const profile = path.join(repo, 'claude-code-khoa-hoc/claude-code-khoa-hoc');
 if (existsSync(profile)) {
   // Chỉ lấy phần hồ sơ (CLAUDE.md, .claude/agents, .claude/output-styles), bỏ thư mục dữ liệu mẫu.

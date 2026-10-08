@@ -1,5 +1,6 @@
 import type {
   AgentMode,
+  ArtifactInfo,
   AgentSessionInfo,
   AuthStatus,
   ChangesResponse,
@@ -111,6 +112,10 @@ export const api = {
   agentProfile: async () =>
     ((await (await request('/api/agent/profile')).json()) as { profile: ClaudeProfileInfo | null }).profile,
   agentContext: async () => ((await (await request('/api/agent/context')).json()) as { usage: ContextUsage | null }).usage,
+  artifacts: async () => (await request('/api/artifacts')).json() as Promise<ArtifactInfo[]>,
+  artifactContent: async (id: string) =>
+    ((await (await request(`/api/artifacts/content?id=${encodeURIComponent(id)}`)).json()) as { html: string }).html,
+  deleteArtifact: async (id: string) => void (await request('/api/artifacts/delete', { id })),
   sessions: async () => (await request('/api/agent/sessions')).json() as Promise<AgentSessionInfo[]>,
   openSession: async (id: string) => void (await request('/api/agent/sessions/open', { id })),
   renameSession: async (id: string, title: string) => void (await request('/api/agent/sessions/rename', { id, title })),
