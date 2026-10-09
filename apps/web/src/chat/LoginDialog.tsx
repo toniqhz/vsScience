@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import type { AuthStatus, LoginProgress } from '@ide/shared';
 import { api } from '../api/client';
 
+/** Chạy trong app desktop (Electron): mọi cửa sổ mới được mở bằng trình duyệt mặc định của máy. */
+const IS_DESKTOP = /\bElectron\//.test(navigator.userAgent);
+
 const PLAN_LABEL: Record<string, string> = { pro: 'Pro', max: 'Max', team: 'Team', enterprise: 'Enterprise' };
 
 export function planLabel(plan: string | null): string {
@@ -61,6 +64,11 @@ export function LoginDialog({
   });
 
   const openInTab = (url: string, tab?: Window | null) => {
+    if (IS_DESKTOP) {
+      // App desktop: cửa sổ mới luôn được chuyển sang trình duyệt mặc định của máy (window.open trả về null).
+      window.open(url, '_blank');
+      return true;
+    }
     const w = tab ?? window.open('about:blank', '_blank');
     if (!w) return false;
     w.opener = null;
@@ -70,7 +78,8 @@ export function LoginDialog({
 
   const start = () => {
     // Mở tab ngay trong lúc bấm để trình duyệt không chặn popup, rồi mới điền link.
-    const tab = window.open('about:blank', '_blank');
+    // App desktop không cần (và không mở được tab trống): link mở thẳng bằng trình duyệt của máy.
+    const tab = IS_DESKTOP ? null : window.open('about:blank', '_blank');
     setStarting(true);
     setError(null);
     setShowCode(false);
@@ -126,7 +135,7 @@ export function LoginDialog({
             <>
               <p>
                 Dùng tài khoản Claude của bạn (gói Pro hoặc Max), giống Claude Code trong VS Code. Trang đăng nhập của
-                Claude sẽ mở trong tab mới — đăng nhập rồi bấm <strong>Authorize</strong> là xong.
+                Claude sẽ mở {IS_DESKTOP ? 'trong trình duyệt trên máy' : 'trong tab mới'} — đăng nhập rồi bấm <strong>Authorize</strong> là xong.
               </p>
               <button className="btn btn-claude btn-block" onClick={start} disabled={starting}>
                 {starting ? 'Đang mở trang đăng nhập…' : status?.loggedIn ? 'Đăng nhập tài khoản khác' : 'Đăng nhập bằng tài khoản Claude'}
