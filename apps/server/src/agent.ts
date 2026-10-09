@@ -23,7 +23,7 @@ import { ARTIFACT_FOLDER, type AgentBlock, type AgentEvent, type AgentMode, type
 import { cliEnv } from './claude-auth.js';
 import { FolderGuard, claudeScratchRoot } from './folderGuard.js';
 import type { ClaudeProfile } from './profile.js';
-import { parsePdfToolCommand, pdfToolPath, pdfToolPrompt } from './pdfTool.js';
+import { parsePdfToolCommand, pdfToolPath, pdfToolPrompt, slidesToolPath, slidesToolPrompt } from './pdfTool.js';
 import { pythonHome, runtimeKey, runtimePrompt } from './runtime.js';
 
 /** Phần của Query (Agent SDK) mà phiên dùng tới — tách ra để test bằng phiên giả. */
@@ -594,6 +594,7 @@ export class AgentSession {
     const tempBases = withLongForms([tmpdir()]);
     const roots = withLongForms([cwd, ...(scratch ? [scratch] : [])]).concat(tempBases.map((t) => claudeScratchRoot(cwd, process.platform, t)));
     const pdfTool = pdfToolPath();
+    const slidesTool = slidesToolPath();
     const extraAllowed = withLongForms(
       [pythonHome(), path.dirname(this.opts.claudeBin), path.dirname(pdfTool)].filter((d): d is string => !!d && path.isAbsolute(d)),
     );
@@ -607,7 +608,8 @@ export class AgentSession {
         // Kế hoạch (ExitPlanMode) luôn cần người dùng duyệt.
         if (
           PLAN_TOOLS.has(toolName) ||
-          (outside.length === 0 && (READ_ONLY_TOOLS.has(toolName) || isPdfToolCall(toolName, toolInput, pdfTool))) ||
+          (outside.length === 0 &&
+            (READ_ONLY_TOOLS.has(toolName) || isPdfToolCall(toolName, toolInput, pdfTool) || isPdfToolCall(toolName, toolInput, slidesTool))) ||
           (this.#applied?.mode === 'auto' && outside.length === 0 && toolName !== 'ExitPlanMode')
         ) {
           resolve({ behavior: 'allow', updatedInput: toolInput });
@@ -654,7 +656,7 @@ export class AgentSession {
       systemPrompt: {
         type: 'preset',
         preset: 'claude_code',
-        append: [systemAppend(cwd, scratch), runtimePrompt(), pythonHome() ? pdfToolPrompt(pdfTool) : null, profile?.systemAppend].filter(Boolean).join('\n\n'),
+        append: [systemAppend(cwd, scratch), runtimePrompt(), pythonHome() ? pdfToolPrompt(pdfTool) : null, pythonHome() ? slidesToolPrompt(slidesTool) : null, profile?.systemAppend].filter(Boolean).join('\n\n'),
       },
       ...(profile && Object.keys(profile.agents).length ? { agents: profile.agents } : {}),
       // Câu hỏi nhiều lựa chọn cần giao diện riêng — chưa hỗ trợ.

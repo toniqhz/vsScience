@@ -12,6 +12,7 @@ import { ExcelViewer } from '../viewers/ExcelViewer';
 import { OpenExternalButton } from '../viewers/OpenExternalButton';
 import { ImageViewer } from '../viewers/ImageViewer';
 import { PdfViewer } from '../viewers/PdfViewer';
+import { PptxViewer } from '../viewers/PptxViewer';
 import { TextViewer } from '../viewers/TextViewer';
 import { WordViewer } from '../viewers/WordViewer';
 import { useWorkbench, type SnapshotRef } from '../workbenchContext';
@@ -36,6 +37,15 @@ function FilePanel({ params }: IDockviewPanelProps<FilePanelParams>) {
       return <TextViewer path={params.path} kind={params.kind} />;
     case 'image':
       return <ImageViewer path={params.path} />;
+    case 'powerpoint':
+      if (/\.pptx$/i.test(params.path)) return <PptxViewer path={params.path} />;
+      return (
+        <div className="placeholder-panel">
+          <span className="codicon codicon-preview placeholder-icon kind-powerpoint" />
+          <p>Chưa xem trước được file PowerPoint đời cũ (.ppt). Mở bằng PowerPoint và lưu lại thành .pptx để xem trong app và để Claude đọc được.</p>
+          <OpenExternalButton path={params.path} app="PowerPoint" primary />
+        </div>
+      );
     case 'word':
       if (/\.docx$/i.test(params.path)) return <WordViewer path={params.path} />;
       return (

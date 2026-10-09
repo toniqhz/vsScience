@@ -10,6 +10,8 @@ const KIND_BY_EXT: Record<string, FileKind> = {
   '.xlsm': 'excel',
   '.xls': 'excel',
   '.csv': 'excel',
+  '.pptx': 'powerpoint',
+  '.ppt': 'powerpoint',
   // Ghi chú, bản tóm tắt, trang HTML mà Claude hay viết ra.
   '.md': 'markdown',
   '.markdown': 'markdown',
@@ -31,6 +33,8 @@ export const MIME_BY_EXT: Record<string, string> = {
   '.xlsm': 'application/vnd.ms-excel.sheet.macroEnabled.12',
   '.xls': 'application/vnd.ms-excel',
   '.csv': 'text/csv; charset=utf-8',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.ppt': 'application/vnd.ms-powerpoint',
   '.md': 'text/markdown; charset=utf-8',
   '.markdown': 'text/markdown; charset=utf-8',
   '.txt': 'text/plain; charset=utf-8',

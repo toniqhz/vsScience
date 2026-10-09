@@ -71,7 +71,7 @@ export function runtimePrompt(home = pythonHome(), platform = process.platform, 
   if (!home) return null;
   const shell = platform === 'win32' ? 'PowerShell' : 'shell';
   const data = packs.includes('data');
-  const libs = ['python-docx (Word)', 'openpyxl và xlrd (Excel)', 'PyMuPDF/fitz (PDF)', ...(data ? ['pandas', 'numpy', 'scipy', 'matplotlib'] : [])];
+  const libs = ['python-docx (Word)', 'openpyxl và xlrd (Excel)', 'python-pptx (PowerPoint)', 'PyMuPDF/fitz (PDF)', ...(data ? ['pandas', 'numpy', 'scipy', 'matplotlib'] : [])];
   return `# Công cụ có sẵn trên máy
 - Python 3.12 đi kèm app, gọi bằng lệnh \`python\` trong ${shell}, đã có: ${libs.join(', ')}.
 - Không cài thêm thư viện (không pip install). Thiếu thư viện thì làm cách khác hoặc báo người dùng.${

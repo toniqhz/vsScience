@@ -10,3 +10,6 @@ apps/web/public/pdfjs/
 # App desktop: file sinh ra khi đóng gói
 apps/desktop/build/
 apps/desktop/release/
+
+# Python tự sinh khi chạy thử công cụ
+__pycache__/

@@ -45,4 +45,10 @@ describe('parsePdfToolCommand', () => {
     expect(parsePdfToolCommand(`python "${WIN_TOOL}" text "$env:USERPROFILE\\a.pdf"`, WIN_TOOL, 'powershell')).toBeNull();
     expect(parsePdfToolCommand(`python "${WIN_TOOL}" text a.pdf | Out-File x`, WIN_TOOL, 'powershell')).toBeNull();
   });
+
+  it('cùng cách nhận lệnh cho công cụ đọc PowerPoint (slides.py)', () => {
+    const tool = '/Applications/VsScience.app/Contents/Resources/tools/slides.py';
+    expect(parsePdfToolCommand(`python "${tool}" text "Bài giảng.pptx" --pages 3-5`, tool, 'posix')).toEqual({ sub: 'text', file: 'Bài giảng.pptx', pages: '3-5' });
+    expect(parsePdfToolCommand(`python "${tool}" text a.pptx; rm x`, tool, 'posix')).toBeNull();
+  });
 });

@@ -6,9 +6,17 @@ import { fileURLToPath } from 'node:url';
  * Công cụ Read của Claude Code cần pdftoppm (poppler) để đọc PDF theo trang; máy người dùng
  * thường không có, nên Claude dùng công cụ này thay thế.
  */
+function toolsDir(): string {
+  return process.env.IDE_TOOLS_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../tools');
+}
+
 export function pdfToolPath(): string {
-  if (process.env.IDE_TOOLS_DIR) return path.join(process.env.IDE_TOOLS_DIR, 'pdf.py');
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../tools/pdf.py');
+  return path.join(toolsDir(), 'pdf.py');
+}
+
+/** Công cụ đọc PowerPoint (.pptx) đi kèm app (tools/slides.py, chạy bằng python-pptx). Cùng cách gọi với công cụ PDF. */
+export function slidesToolPath(): string {
+  return path.join(toolsDir(), 'slides.py');
 }
 
 export type PdfToolSub = 'info' | 'text' | 'search' | 'render';
@@ -93,6 +101,17 @@ export function parsePdfToolCommand(command: string, toolPath: string, shell: 'p
     }
   }
   return call;
+}
+
+/** Hướng dẫn cho system prompt: đọc PowerPoint bằng công cụ đi kèm. */
+export function slidesToolPrompt(toolPath: string): string {
+  const tool = `python "${toolPath}"`;
+  return `# Đọc PowerPoint
+Công cụ Read không đọc được PowerPoint. Đọc .pptx bằng công cụ của app (cùng cách gọi như công cụ PDF, mỗi lần một lệnh đơn):
+- \`${tool} info "<file.pptx>"\`: số slide và tiêu đề từng slide.
+- \`${tool} text "<file.pptx>" --pages 1-10\`: chữ, bảng, ghi chú người thuyết trình của từng slide, có dòng "=== Slide N ===" để trích dẫn số slide.
+- \`${tool} search "<file.pptx>" "<từ khóa>"\`: các slide có từ khóa.
+Các lệnh này chỉ đọc file, app tự cho chạy không cần hỏi. Tạo hay sửa slide thì viết script dùng python-pptx. File .ppt đời cũ: nhờ người dùng mở bằng PowerPoint và lưu lại thành .pptx.`;
 }
 
 /** Hướng dẫn cho system prompt. */

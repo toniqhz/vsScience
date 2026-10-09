@@ -180,7 +180,8 @@ export class Snapshots {
       };
     }
     const change = diffLines(oldLines, newLines, filepath, status === 'added' ? 'create' : 'edit');
-    const unit = fileKind(filepath) === 'excel' ? 'ô' : fileKind(filepath) === 'word' ? 'đoạn' : 'dòng';
+    const kind = fileKind(filepath);
+    const unit = kind === 'excel' ? 'ô' : kind === 'word' ? 'đoạn' : kind === 'powerpoint' ? 'đoạn chữ trên từng slide' : 'dòng';
     return {
       path: filepath,
       status,

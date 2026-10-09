@@ -225,17 +225,18 @@ function FileChangeCard({
   );
 }
 
-/** Lệnh gọi công cụ đọc PDF của app (python ".../pdf.py" text "file.pdf" --pages 3-7). */
-function pdfToolCall(command: string): { sub: string; file: string; pages?: string; query?: string } | null {
-  const m = /^\s*(?:&\s*)?\S*python[\d.]*(?:\.exe)?["']?\s+["']?[^"'\s]*?[^"']*pdf\.py["']?\s+(info|text|search|render)\s+(?:"([^"]+)"|'([^']+)'|(\S+))(.*)$/i.exec(command);
+/** Lệnh gọi công cụ đọc PDF hay PowerPoint của app (python ".../pdf.py" text "file.pdf" --pages 3-7, slides.py tương tự). */
+function pdfToolCall(command: string): { tool: 'pdf' | 'slides'; sub: string; file: string; pages?: string; query?: string } | null {
+  const m = /^\s*(?:&\s*)?\S*python[\d.]*(?:\.exe)?["']?\s+["']?[^"'\s]*?[^"']*(pdf|slides)\.py["']?\s+(info|text|search|render)\s+(?:"([^"]+)"|'([^']+)'|(\S+))(.*)$/i.exec(command);
   if (!m) return null;
-  const rest = m[5] ?? '';
+  const [, toolName, sub, dq, sq, bare, rest = ''] = m;
   const q = /^\s*(?:"([^"]+)"|'([^']+)'|([^-\s]\S*))/.exec(rest);
   return {
-    sub: m[1]!.toLowerCase(),
-    file: m[2] ?? m[3] ?? m[4] ?? '',
+    tool: toolName!.toLowerCase() === 'slides' ? 'slides' : 'pdf',
+    sub: sub!.toLowerCase(),
+    file: dq ?? sq ?? bare ?? '',
     pages: /--pages\s+(\S+)/.exec(rest)?.[1]?.replace(/["']/g, ''),
-    query: m[1] === 'search' ? q?.slice(1).find(Boolean) : undefined,
+    query: sub === 'search' ? q?.slice(1).find(Boolean) : undefined,
   };
 }
 
@@ -348,9 +349,15 @@ function ToolItem({ item, running, onOpenFile }: { item: Extract<Item, { type: '
       const pdf = pdfToolCall(str(input.command));
       if (pdf) {
         const name = pdf.file.split(/[\\/]/).pop() ?? pdf.file;
-        const pages = pdf.pages ? ` · trang ${pdf.pages.replace(/-/g, '–')}` : '';
+        const pages = pdf.pages ? ` · ${pdf.tool === 'slides' ? 'slide' : 'trang'} ${pdf.pages.replace(/-/g, '–')}` : '';
         const [icon, title, detail] =
-          pdf.sub === 'info'
+          pdf.tool === 'slides'
+            ? pdf.sub === 'info'
+              ? ['codicon-list-tree', 'Xem danh sách slide', name]
+              : pdf.sub === 'search'
+                ? ['codicon-search', 'Tìm trong PowerPoint', `“${pdf.query ?? ''}” · ${name}`]
+                : ['codicon-eye', 'Đọc PowerPoint', `${name}${pages}`]
+            : pdf.sub === 'info'
             ? ['codicon-list-tree', 'Xem mục lục PDF', name]
             : pdf.sub === 'search'
               ? ['codicon-search', 'Tìm trong PDF', `“${pdf.query ?? ''}” · ${name}`]

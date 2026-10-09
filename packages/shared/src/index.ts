@@ -3,7 +3,7 @@
 
 /** Ba loại file người dùng làm việc chính. */
 /** Loại file để chọn cách xem; 'other' là file khác (zip, video…) chỉ mở được bằng ứng dụng trên máy. */
-export type FileKind = 'pdf' | 'word' | 'excel' | 'markdown' | 'text' | 'html' | 'image' | 'other';
+export type FileKind = 'pdf' | 'word' | 'excel' | 'powerpoint' | 'markdown' | 'text' | 'html' | 'image' | 'other';
 
 export interface TreeNode {
   /** Đường dẫn tương đối kiểu POSIX tính từ thư mục làm việc; gốc là "". */

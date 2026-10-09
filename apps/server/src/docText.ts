@@ -2,7 +2,7 @@ import path from 'node:path';
 import { strFromU8, unzipSync } from 'fflate';
 
 // Trích nội dung chữ của file để so sánh phiên bản:
-// Word theo đoạn văn, Excel theo ô ("Trang!A1: giá trị"), CSV theo dòng.
+// Word theo đoạn văn, Excel theo ô ("Trang!A1: giá trị"), PowerPoint theo đoạn chữ của từng slide, CSV theo dòng.
 
 function decodeXml(s: string): string {
   return s
@@ -17,6 +17,26 @@ function decodeXml(s: string): string {
 
 function unzip(data: Uint8Array): Record<string, Uint8Array> {
   return unzipSync(data);
+}
+
+/** Đoạn chữ của từng slide trong file .pptx, theo thứ tự slide: "Slide 3: …". Ghi chú người thuyết trình ghi "(ghi chú)". */
+export function pptxParagraphs(data: Uint8Array): string[] {
+  const files = unzip(data);
+  const slideNo = (name: string) => Number(/(\d+)\.xml$/.exec(name)?.[1] ?? 0);
+  const paragraphsOf = (xml: string) =>
+    xml
+      .split(/<\/a:p>/)
+      .map((p) => [...p.matchAll(/<a:t(?:\s[^>]*)?>([^<]*)<\/a:t>/g)].map((m) => decodeXml(m[1] ?? '')).join(''))
+      .filter((t) => t.trim());
+  const out: string[] = [];
+  const slides = Object.keys(files).filter((f) => /^ppt\/slides\/slide\d+\.xml$/.test(f)).sort((a, b) => slideNo(a) - slideNo(b));
+  for (const f of slides) {
+    const n = slideNo(f);
+    for (const t of paragraphsOf(strFromU8(files[f]!))) out.push(`Slide ${n}: ${t}`);
+    const notes = files[`ppt/notesSlides/notesSlide${n}.xml`];
+    if (notes) for (const t of paragraphsOf(strFromU8(notes))) out.push(`Slide ${n} (ghi chú): ${t}`);
+  }
+  return out;
 }
 
 /** Đoạn văn của file .docx (kể cả chữ trong công thức toán OMML). */
@@ -93,6 +113,7 @@ export function comparableLines(file: string, data: Uint8Array | null): string[]
   try {
     if (ext === '.docx') return docxParagraphs(data);
     if (ext === '.xlsx' || ext === '.xlsm') return xlsxCells(data);
+    if (ext === '.pptx') return pptxParagraphs(data);
     if (ext === '.csv' || ext === '.md' || ext === '.markdown' || ext === '.txt' || ext === '.html' || ext === '.htm')
       return new TextDecoder().decode(data).split(/\r?\n/);
   } catch {

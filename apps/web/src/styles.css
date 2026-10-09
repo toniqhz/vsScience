@@ -25,6 +25,7 @@
   --kind-pdf: #f1707b;
   --kind-word: #6cb6ff;
   --kind-excel: #6ccb8c;
+  --kind-powerpoint: #e8875f;
   --kind-markdown: #b4a7e5;
   --kind-text: #c5c5c5;
   --kind-html: #e8a46a;
@@ -376,6 +377,9 @@ textarea:focus {
 }
 .kind-word {
   color: var(--kind-word);
+}
+.kind-powerpoint {
+  color: var(--kind-powerpoint);
 }
 .kind-markdown {
   color: var(--kind-markdown);
@@ -3342,4 +3346,32 @@ a.btn {
   .pinned-question {
     animation: none;
   }
+}
+
+/* ---------- Xem PowerPoint (.pptx): slide xếp dọc như PDF ---------- */
+.pptx-host {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #2b2b2b;
+}
+
+.pptx-body {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0 24px;
+}
+
+/* Thư viện tô nền đen cho khung chứa slide: để nền của khung xem. */
+.pptx-body .pptx-preview-wrapper {
+  background: transparent !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+
+/* Mỗi slide như một trang giấy, cách nhau một khoảng. */
+.pptx-body .pptx-preview-slide-wrapper {
+  margin: 0 auto 16px !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
 }
