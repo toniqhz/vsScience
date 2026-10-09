@@ -409,6 +409,14 @@ textarea:focus {
   container: chat / inline-size;
 }
 
+.chat-scroll-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .chat-scroll {
   flex: 1;
   min-height: 0;
@@ -3014,7 +3022,7 @@ kbd {
 }
 
 /* Hội thoại cuộn dưới bảng kế hoạch: mờ dần ở mép trên thay vì cắt ngang dòng chữ. */
-.plan-panel + .chat-scroll {
+.plan-panel + .chat-scroll-wrap .chat-scroll {
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
   mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
 }
@@ -3128,37 +3136,6 @@ kbd {
   gap: 12px; /* bằng gap của .transcript */
 }
 
-/* top: -1px để biết lúc đang ghim (bị khuất 1px); padding bù lại khoảng cách với đỉnh khung. */
-.msg-user-sticky {
-  position: sticky;
-  top: -1px;
-  z-index: 3;
-  display: flex;
-  justify-content: flex-end;
-  margin-top: -9px;
-  padding-top: 9px;
-  pointer-events: none;
-}
-
-.msg-user-sticky .msg-user {
-  pointer-events: auto;
-}
-
-.msg-user-sticky.is-stuck .msg-user {
-  cursor: pointer;
-}
-
-.msg-user-sticky.is-stuck .msg-user-text {
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-}
-
-.msg-user-sticky.is-stuck .msg-files {
-  display: none;
-}
 
 /* ---------- Artifact (trang Claude đã đăng) ---------- */
 .artifact-row .side-row-main {
@@ -3302,4 +3279,67 @@ kbd {
 /* Nút dạng link (Mở trên claude.ai) không gạch chân. */
 a.btn {
   text-decoration: none;
+}
+
+/* Câu hỏi ghim ở đầu khung khi đang đọc phần trả lời của nó: lớp nổi, không chiếm chỗ trong hội thoại. */
+.pinned-question {
+  position: absolute;
+  top: 8px;
+  right: 30px;
+  z-index: 4;
+  max-width: min(720px, calc(85% - 40px));
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-input);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+  animation: pinned-in 0.18s ease-out;
+}
+
+/* Chỉ hiện 2 dòng đầu của câu hỏi (cắt trên thẻ chữ bên trong; cắt thẳng trên nút bấm bị lộ dòng thứ ba). */
+.pinned-question-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.pinned-question:hover {
+  border-color: var(--text-faint);
+}
+
+@keyframes pinned-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* Dòng mới của câu trả lời và mục mới trên timeline hiện ra mờ dần, trượt nhẹ lên (thay vì bật ra đột ngột). */
+.msg-assistant > *,
+.msg-assistant li,
+.tl-item {
+  animation: line-in 0.32s ease-out both;
+}
+
+@keyframes line-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msg-assistant > *,
+  .msg-assistant li,
+  .tl-item,
+  .pinned-question {
+    animation: none;
+  }
 }

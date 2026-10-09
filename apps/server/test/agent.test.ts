@@ -1,10 +1,10 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent } from '@ide/shared';
-import { AgentSession, cleanAgentReport, type AgentQuery, type QueryFn } from '../src/agent.js';
+import { AgentSession, cleanAgentReport, sameDir, type AgentQuery, type QueryFn } from '../src/agent.js';
 
 const CWD = '/tmp/ws-gia';
 const SETTINGS = { model: 'claude-opus-5-5', effort: 'medium' as const, mode: 'ask' as const };
@@ -383,6 +383,23 @@ describe('quản lý phiên', () => {
     ]);
   });
 
+  it('macOS: thư mục tên có dấu ở dạng tách dấu (NFD) vẫn thấy phiên Claude ghi ở dạng NFC', async () => {
+    const nfc = '/Users/tuan/Tài liệu/chấm thi';
+    const nfd = nfc.normalize('NFD');
+    expect(nfd).not.toBe(nfc);
+    const sessions = {
+      list: async () => [
+        { sessionId: 'a', summary: 'Đề 1', lastModified: 1, cwd: nfc },
+        { sessionId: 'b', summary: 'khác', lastModified: 2, cwd: '/Users/tuan/Khác' },
+      ],
+      messages: async () => [] as never,
+      rename: async () => {},
+      remove: async () => {},
+    };
+    const session = new AgentSession({ cwd: () => nfd, claudeBin: '/x', emit: () => {}, sessions });
+    expect((await session.listSessions()).map((x) => x.id)).toEqual(['a']);
+  });
+
   it('mở lại phiên: dựng lại hội thoại (kể cả thẻ thay đổi file), gửi tiếp thì tiếp tục phiên đó', async () => {
     const { session, replays, fake } = withSessions();
     await session.openSession('cu');
@@ -406,5 +423,25 @@ describe('quản lý phiên', () => {
     expect(calls).toEqual(['rename cu Đề 15 phút', 'remove cu']);
     expect(events.at(-1)).toEqual({ kind: 'cleared' });
     expect(session.sessionId).toBeNull();
+  });
+});
+
+describe('sameDir', () => {
+  it('cùng thư mục dù khác dạng Unicode, khác hoa thường (Mac/Windows), có hay không dấu / ở cuối', () => {
+    const p = '/Users/tuan/Tài liệu/Chấm thi';
+    expect(sameDir(p, p.normalize('NFD'), 'darwin')).toBe(true);
+    expect(sameDir(p, '/users/TUAN/tài liệu/chấm thi/', 'darwin')).toBe(true);
+    expect(sameDir(p, '/users/TUAN/tài liệu/chấm thi', 'linux')).toBe(false);
+    expect(sameDir(p, '/Users/tuan/Tài liệu/Chấm thi 2', 'darwin')).toBe(false);
+  });
+
+  it('giải liên kết thư mục (như /tmp → /private/tmp trên Mac)', () => {
+    const base = mkdtempSync(path.join(tmpdir(), 'samedir-'));
+    const real = path.join(base, 'that');
+    const link = path.join(base, 'lien-ket');
+    mkdirSync(real);
+    symlinkSync(real, link);
+    expect(sameDir(link, real)).toBe(true);
+    rmSync(base, { recursive: true, force: true });
   });
 });

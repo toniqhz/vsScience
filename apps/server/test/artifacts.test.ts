@@ -86,4 +86,17 @@ describe('ArtifactStore', () => {
     expect(await store.recordLinks('/ws/doc', [{ url, title: null, doc: true }])).toBe(false);
     expect(await store.list('/ws/doc')).toMatchObject([{ source: 'published', kind: 'doc', local: false, title: 'Tóm tắt trang 20–25', url }]);
   });
+
+  it('liệt kê mọi file trong thư mục artifact/ của thư mục làm việc, không trùng với mục đã ghi nhận', async () => {
+    const ws = path.join(dir, 'ws-folder');
+    mkdirSync(path.join(ws, 'artifact', 'Chương 3'), { recursive: true });
+    writeFileSync(path.join(ws, 'artifact', 'Tóm tắt.md'), '# x');
+    writeFileSync(path.join(ws, 'artifact', 'Chương 3', 'bieu-do.html'), '<p>x</p>');
+    writeFileSync(path.join(ws, 'artifact', '.an.md'), 'ẩn');
+    const store = new ArtifactStore(path.join(dir, 'kho-folder'));
+    await store.recordFiles(ws, [{ path: 'artifact/Tóm tắt.md' }]);
+    const list = await store.list(ws);
+    expect(list.map((a) => a.path).sort()).toEqual(['artifact/Chương 3/bieu-do.html', 'artifact/Tóm tắt.md']);
+    expect(list.every((a) => a.source === 'file')).toBe(true);
+  });
 });

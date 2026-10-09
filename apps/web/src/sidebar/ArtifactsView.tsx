@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ArtifactInfo } from '@ide/shared';
+import { ARTIFACT_FOLDER, type ArtifactInfo } from '@ide/shared';
 import { api } from '../api/client';
 import { useWorkspace } from '../api/workspace';
 import { timeAgo } from '../format';
@@ -57,8 +57,10 @@ export function ArtifactsView({ onOpen }: { onOpen: (a: ArtifactInfo) => void })
                   </span>
                 </span>
               </button>
-              <span className="row-actions">
-                <button
+              {/* File trong thư mục artifact/ luôn hiện theo thư mục: muốn bỏ thì xóa hoặc chuyển file đi. */}
+              {!a.path?.startsWith(`${ARTIFACT_FOLDER}/`) && (
+                <span className="row-actions">
+                  <button
                   className="icon-btn"
                   title={a.source === 'file' ? 'Bỏ khỏi danh sách (file vẫn còn trong thư mục)' : 'Bỏ khỏi danh sách (trang trên claude.ai vẫn còn)'}
                   onClick={() =>
@@ -67,8 +69,9 @@ export function ArtifactsView({ onOpen }: { onOpen: (a: ArtifactInfo) => void })
                   }
                 >
                   <span className="codicon codicon-trash" />
-                </button>
-              </span>
+                  </button>
+                </span>
+              )}
             </div>
           );
         })}

@@ -1,8 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { ArtifactInfo } from '@ide/shared';
+import { ARTIFACT_FOLDER, type ArtifactInfo } from '@ide/shared';
 
 /** Link trang Claude đăng (claude.ai/artifact/… hoặc claude.ai/code/artifact/…), lấy từ kết quả công cụ Artifact. */
 const ARTIFACT_URL = /https:\/\/claude\.ai\/(?:code\/)?artifact\/[A-Za-z0-9_-]+/;
@@ -79,12 +78,30 @@ export class ArtifactStore {
     await writeFile(path.join(this.#folder(cwd), 'index.json'), JSON.stringify(index, null, 2));
   }
 
-  /** Mới nhất trước; file đã bị xóa khỏi thư mục thì không hiện. */
+  /**
+   * Mới nhất trước. Gồm các mục đã ghi nhận (file đã bị xóa thì không hiện) và mọi file trong thư mục
+   * artifact/ của thư mục làm việc (kể cả file người dùng tự bỏ vào). File sửa gần đây lên đầu.
+   */
   async list(cwd: string): Promise<ArtifactInfo[]> {
     const { items } = await this.#load(cwd);
-    return items
-      .filter((a) => a.source !== 'file' || (a.path && existsSync(path.join(cwd, a.path))))
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+    const out: ArtifactInfo[] = [];
+    const seen = new Set<string>();
+    for (const a of items) {
+      if (a.source !== 'file') {
+        out.push(a);
+        continue;
+      }
+      const st = a.path ? await stat(path.join(cwd, a.path)).catch(() => null) : null;
+      if (!st?.isFile()) continue;
+      seen.add(a.path!);
+      out.push({ ...a, updatedAt: Math.max(a.updatedAt, st.mtimeMs) });
+    }
+    for (const f of await listFolder(path.join(cwd, ARTIFACT_FOLDER), ARTIFACT_FOLDER)) {
+      if (seen.has(f.path)) continue;
+      const name = path.posix.basename(f.path);
+      out.push({ id: `folder:${f.path}`, source: 'file', path: f.path, title: name, url: null, fileName: name, createdAt: f.time, updatedAt: f.time });
+    }
+    return out.sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   /** Ghi nhận một lần đăng trang. Đăng lại cùng link (sửa trang) thì cập nhật mục cũ thay vì thêm mục mới. */
@@ -208,6 +225,23 @@ export class ArtifactStore {
     await rm(path.join(this.#folder(cwd), `${id}.html`), { force: true });
     await this.#save(cwd, { ...index, items: index.items.filter((a) => a.id !== id) });
   }
+}
+
+/** Các file trong một thư mục (đệ quy vài tầng, bỏ file ẩn); đường dẫn tương đối dạng / tính từ thư mục làm việc. */
+async function listFolder(dir: string, rel: string, depth = 0): Promise<{ path: string; time: number }[]> {
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  const out: { path: string; time: number }[] = [];
+  for (const e of entries) {
+    if (e.name.startsWith('.') || e.name.startsWith('~$')) continue;
+    const abs = path.join(dir, e.name);
+    const r = `${rel}/${e.name}`;
+    if (e.isDirectory() && depth < 3) out.push(...(await listFolder(abs, r, depth + 1)));
+    else if (e.isFile()) {
+      const st = await stat(abs).catch(() => null);
+      if (st) out.push({ path: r, time: st.mtimeMs });
+    }
+  }
+  return out;
 }
 
 /**

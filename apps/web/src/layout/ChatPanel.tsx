@@ -87,11 +87,84 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
     }
   }, [prefs]);
 
+  /** Vị trí cuộn lần trước: cuộn ngược lên so với nó là người dùng đang đọc lại (app chỉ tự cuộn xuống). */
+  const prevTop = useRef(0);
+  const followRaf = useRef(0);
+  /**
+   * Bám đáy khi có nội dung mới: trôi êm xuống thay vì nhảy (mỗi khung hình đi 1/5 quãng còn lại).
+   * Xa quá (mở lại phiên, tải trang) thì nhảy thẳng. Người dùng cuộn lên là dừng ngay.
+   */
+  const follow = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el || !stickToBottom.current) return;
+    if (el.scrollHeight - el.clientHeight - el.scrollTop > el.clientHeight * 2) {
+      el.scrollTop = el.scrollHeight;
+      prevTop.current = el.scrollTop;
+      return;
+    }
+    if (followRaf.current) return;
+    const step = () => {
+      followRaf.current = 0;
+      if (!stickToBottom.current) return;
+      const diff = el.scrollHeight - el.clientHeight - el.scrollTop;
+      if (diff <= 1) return;
+      el.scrollTop += Math.max(1, Math.ceil(diff * 0.2));
+      prevTop.current = el.scrollTop;
+      followRaf.current = requestAnimationFrame(step);
+    };
+    followRaf.current = requestAnimationFrame(step);
+  }, []);
+  // Dọn lịch đang chờ và xóa dấu "đang có lịch" (React chạy thử gỡ rồi gắn lại ở chế độ dev).
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(followRaf.current);
+      followRaf.current = 0;
+    },
+    [],
+  );
+
+  /**
+   * Câu hỏi ghim ở đầu khung khi đang đọc phần trả lời của nó (như VS Code). Là lớp nổi riêng nên câu hỏi
+   * gốc trong hội thoại giữ nguyên kích thước, nội dung bên dưới không bị xô lệch.
+   */
+  const [pinned, setPinned] = useState<{ key: string; text: string } | null>(null);
+  const pinRaf = useRef(0);
+  const updatePinned = useCallback(() => {
+    if (pinRaf.current) return;
+    pinRaf.current = requestAnimationFrame(() => {
+      pinRaf.current = 0;
+      const root = scrollRef.current;
+      if (!root) return;
+      const top = root.getBoundingClientRect().top;
+      let found: { key: string; text: string } | null = null;
+      for (const turn of Array.from(root.querySelectorAll<HTMLElement>('.turn'))) {
+        const r = turn.getBoundingClientRect();
+        if (r.top >= top) break;
+        const bubble = turn.querySelector<HTMLElement>('.msg-user');
+        // Câu hỏi đã cuộn khuất phía trên, phần trả lời vẫn còn trên màn hình.
+        if (bubble && bubble.getBoundingClientRect().bottom < top + 4 && r.bottom > top + 60) {
+          // Lượt sau cùng thỏa điều kiện là lượt đang đọc.
+          // Nối các dòng thành một đoạn: 2 dòng hiển thị được dùng hết bề ngang rồi mới thêm "…".
+          const text = (bubble.querySelector('.msg-user-text')?.textContent ?? '').replace(/\s+/g, ' ').trim();
+          found = { key: turn.dataset.key ?? '', text };
+        }
+      }
+      setPinned((cur) => (cur?.key === found?.key && cur?.text === found?.text ? cur : found));
+    });
+  }, []);
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(pinRaf.current);
+      pinRaf.current = 0;
+    },
+    [],
+  );
+
   // Tự cuộn theo câu trả lời, trừ khi người dùng đã cuộn lên đọc lại.
   useEffect(() => {
-    const el = scrollRef.current;
-    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [agent.seq]);
+    follow();
+    updatePinned();
+  }, [agent.seq, follow, updatePinned]);
 
   // Giữ bám đáy cả khi kích thước đổi mà không có sự kiện mới: ô chat giãn ra khi gõ nhiều dòng,
   // dải hạn mức hiện dưới ô chat, thẻ xin quyền vẽ xong sau. Không có đoạn này, phần cuối hội thoại
@@ -100,7 +173,8 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
     const el = scrollRef.current;
     if (!el) return;
     const stick = () => {
-      if (stickToBottom.current) el.scrollTop = el.scrollHeight;
+      follow();
+      updatePinned();
     };
     const ro = new ResizeObserver(stick);
     ro.observe(el);
@@ -118,7 +192,7 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
       ro.disconnect();
       mo.disconnect();
     };
-  }, []);
+  }, [follow, updatePinned]);
 
   const plan = useMemo(() => derivePlan(agent.items), [agent.items]);
   const planKey = useMemo(() => planVersion(agent.items), [agent.items]);
@@ -160,18 +234,23 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
     if (!wrap || !panel) return;
     const ro = new ResizeObserver(() => {
       panel.style.setProperty('--composer-h', `${wrap.offsetHeight}px`);
-      const el = scrollRef.current;
-      if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
+      follow();
     });
     ro.observe(wrap);
     return () => ro.disconnect();
-  }, []);
+  }, [follow]);
 
   const local = useCallback((node: LocalNode) => dispatch({ type: 'local', node }), []);
   const fail = useCallback((e: Error) => local({ kind: 'notice', tone: 'warn', text: e.message }), [local]);
 
+  const onPermission = useCallback(
+    (id: string, allow: boolean, always: boolean) => void api.agentPermission(id, allow, always).catch(fail),
+    [fail],
+  );
+
   const send = (text: string, files: string[] = []) => {
     stickToBottom.current = true;
+    follow();
     api.agentSend({ text, files, model: prefs.model, effort: prefs.effort, mode: prefs.mode }).catch(fail);
   };
 
@@ -243,12 +322,30 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
   return (
     <div className="chat-panel" ref={panelRef}>
       {showPlan && <PlanPanel steps={plan} onJump={jumpTo} onClose={closePlan} />}
+      <div className="chat-scroll-wrap">
+      {pinned && (
+        <button
+          key={pinned.key}
+          className="pinned-question"
+          title="Về câu hỏi này"
+          onClick={() => {
+            stickToBottom.current = false;
+            scrollRef.current?.querySelector<HTMLElement>(`.turn[data-key="${CSS.escape(pinned.key)}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+          }}
+        >
+          <span className="pinned-question-text">{pinned.text}</span>
+        </button>
+      )}
       <div
         className="chat-scroll"
         ref={scrollRef}
         onScroll={(e) => {
           const el = e.currentTarget;
-          stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+          const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+          if (dist < 40) stickToBottom.current = true;
+          else if (el.scrollTop < prevTop.current - 2) stickToBottom.current = false;
+          prevTop.current = el.scrollTop;
+          updatePinned();
         }}
       >
         {agent.items.length === 0 ? (
@@ -292,9 +389,10 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
             items={agent.items}
             running={agent.running}
             onOpenFile={onOpenFile}
-            onPermission={(id, allow, always) => api.agentPermission(id, allow, always).catch(fail)}
+            onPermission={onPermission}
           />
         )}
+      </div>
       </div>
       <div className="chat-column composer-wrap" ref={composerRef}>
         <Composer

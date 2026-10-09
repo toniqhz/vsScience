@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useMemo, useState, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { FileChange } from '@ide/shared';
@@ -53,19 +53,63 @@ function completeLines(text: string): string {
   return text.slice(0, text.lastIndexOf('\n') + 1);
 }
 
-function AssistantText({ text, streaming }: { text: string; streaming: boolean }) {
-  if (streaming) text = completeLines(text);
+const MARKDOWN_COMPONENTS = { a: ({ children, href }: { children?: ReactNode; href?: string }) => <a href={href} target="_blank" rel="noreferrer">{children}</a> };
+
+/**
+ * Tách câu trả lời thành các khối Markdown cấp cao nhất (đoạn văn, danh sách, bảng, khối mã…) theo dòng trống,
+ * để khi có dòng mới chỉ phải dựng lại khối cuối. Không tách trong khối mã (``` hay ~~~), và không tách trước
+ * dòng thụt lề (đoạn tiếp theo của một mục danh sách). Số thứ tự danh sách vẫn đúng vì Markdown giữ số bắt đầu.
+ */
+export function splitBlocks(text: string): string[] {
+  const lines = text.split('\n');
+  const blocks: string[] = [];
+  let cur: string[] = [];
+  let fence: string | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const mark = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (mark && (!fence || mark.startsWith(fence))) fence = fence ? null : mark.slice(0, 3);
+    if (!fence && line.trim() === '') {
+      // Dòng trống ở đầu khối (nhiều dòng trống liền nhau): bỏ.
+      if (!cur.some((l) => l.trim() !== '')) {
+        cur = [];
+        continue;
+      }
+      const next = lines.slice(i + 1).find((l) => l.trim() !== '');
+      if (cur.length && next !== undefined && !/^\s/.test(next)) {
+        blocks.push(cur.join('\n'));
+        cur = [];
+        continue;
+      }
+    }
+    cur.push(line);
+  }
+  if (cur.join('').trim()) blocks.push(cur.join('\n'));
+  return blocks;
+}
+
+const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
+  return (
+    <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+      {text}
+    </Markdown>
+  );
+});
+
+/**
+ * Câu trả lời của Claude. Mỗi khối Markdown được ghi nhớ riêng: có dòng mới chỉ dựng lại khối cuối,
+ * dòng mới hiện ra mờ dần (CSS), không kiểu gõ từng chữ.
+ */
+const AssistantText = memo(function AssistantText({ text }: { text: string }) {
+  const blocks = useMemo(() => splitBlocks(nfc(text)), [text]);
   return (
     <div className="msg-assistant">
-      <Markdown
-        remarkPlugins={[remarkGfm]}
-        components={{ a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer">{children}</a> }}
-      >
-        {nfc(text)}
-      </Markdown>
+      {blocks.map((b, i) => (
+        <MarkdownBlock key={i} text={b} />
+      ))}
     </div>
   );
-}
+});
 
 /** Dòng thao tác thu gọn, bấm để xem chi tiết (giống Claude Code trong VS Code). */
 function ToolRow({
@@ -342,7 +386,7 @@ function ToolItem({ item, running, onOpenFile }: { item: Extract<Item, { type: '
           isError={isError}
         >
           {/* Báo cáo của trợ lý phụ là Markdown (danh sách vấn đề, mức độ…). */}
-          {output ? <AssistantText text={output} streaming={false} /> : undefined}
+          {output ? <AssistantText text={output} /> : undefined}
         </ToolRow>
       );
     }
@@ -540,50 +584,24 @@ function LocalItem({ node }: { node: LocalNode }) {
 
 type UserItem = Extract<Item, { type: 'user' }>;
 
-/**
- * Câu hỏi của người dùng, ghim ở đầu khung khi cuộn qua phần trả lời của nó (như Claude Code trong VS Code).
- * Đang ghim thì thu còn 2 dòng; bấm vào để cuộn về đầu lượt.
- */
-function StickyUser({ item: it }: { item: UserItem }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [stuck, setStuck] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    const root = el?.closest('.chat-scroll');
-    const turn = el?.parentElement;
-    if (!el || !root || !turn) return;
-    // Đang ghim: lượt này đã bắt đầu phía trên đỉnh khung, còn câu hỏi đang nằm sát đỉnh.
-    const check = () => {
-      const top = root.getBoundingClientRect().top;
-      const r = el.getBoundingClientRect();
-      setStuck(turn.getBoundingClientRect().top < top - 2 && r.top <= top + 1 && r.bottom > top);
-    };
-    check();
-    root.addEventListener('scroll', check, { passive: true });
-    return () => root.removeEventListener('scroll', check);
-  }, []);
+/** Câu hỏi của người dùng. Khi cuộn qua phần trả lời, ChatPanel hiện bản thu gọn của nó ở đầu khung. */
+const UserBubble = memo(function UserBubble({ item: it }: { item: UserItem }) {
   return (
-    <div ref={ref} className={`msg-user-sticky ${stuck ? 'is-stuck' : ''}`}>
-      <div
-        className="msg-user"
-        title={stuck ? 'Về đầu câu hỏi này' : undefined}
-        onClick={() => stuck && ref.current?.parentElement?.scrollIntoView({ block: 'start', behavior: 'smooth' })}
-      >
-        <div className="msg-user-text">{it.text}</div>
-        {it.files.length > 0 && (
-          <div className="msg-files">
-            {it.files.map((f) => (
-              <span key={f} className="attachment" title={f}>
-                <span className={`codicon ${fileIcon(f)}`} />
-                {baseName(f)}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
+    <div className="msg-user">
+      <div className="msg-user-text">{it.text}</div>
+      {it.files.length > 0 && (
+        <div className="msg-files">
+          {it.files.map((f) => (
+            <span key={f} className="attachment" title={f}>
+              <span className={`codicon ${fileIcon(f)}`} />
+              {baseName(f)}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
-}
+});
 
 /** Mục không hiển thị gì (công cụ ghi kế hoạch đã gộp vào dòng khác, kết quả lượt không đổi file…). */
 function isHidden(it: Item): boolean {
@@ -627,7 +645,7 @@ export function Transcript({
   onPermission: (id: string, allow: boolean, always: boolean) => void;
 }) {
   const waitingPermission = items.some((it) => it.type === 'permission' && it.allowed === undefined);
-  const steps = new Map(derivePlan(items).map((st) => [st.id, st]));
+  const steps = useMemo(() => new Map(derivePlan(items).map((st) => [st.id, st])), [items]);
   // Các bước Claude tạo liền nhau gộp thành một dòng "Lập kế hoạch N bước".
   const units: (Item | ToolEntry[])[] = [];
   const prevTodos = new Map<string, Todo[] | null>();
@@ -643,7 +661,7 @@ export function Transcript({
       else units.push([it]);
     } else if (!isHidden(it)) units.push(it);
   }
-  // Chia theo lượt: mỗi câu hỏi cùng phần trả lời của nó (để câu hỏi ghim được trong phạm vi lượt đó).
+  // Chia theo lượt: mỗi câu hỏi cùng phần trả lời của nó (để ghim câu hỏi khi cuộn qua phần trả lời).
   const turns: { key: string; user?: UserItem; units: (Exclude<Item, UserItem> | ToolEntry[])[] }[] = [];
   for (const u of units) {
     if (!Array.isArray(u) && u.type === 'user') turns.push({ key: u.key, user: u, units: [] });
@@ -656,14 +674,16 @@ export function Transcript({
   return (
     <div className="chat-column transcript">
       {turns.map((t, i) => (
-        <div key={t.key} className="turn">
-          {t.user && <StickyUser item={t.user} />}
-          {t.units.map((it) => (
-            // Mọi thứ Claude làm nằm trên đường timeline bên trái.
-            <div key={Array.isArray(it) ? it[0]!.key : it.key} className={`tl-item dot-${dotOf(it, running)}`}>
-              {renderUnit(it)}
-            </div>
-          ))}
+        <div key={t.key} className="turn" data-key={t.key}>
+          {t.user && <UserBubble item={t.user} />}
+          {t.units.map((it) =>
+            Array.isArray(it) ? (
+              <PlanRow key={it[0]!.key} entries={it} steps={steps} prevTodos={prevTodos.get(it[0]!.key) ?? null} />
+            ) : (
+              // Mục chưa đổi thì không vẽ lại (Row được ghi nhớ theo chính mục đó).
+              <Row key={it.key} item={it} running={it.type === 'tool' && !it.result ? running : false} onOpenFile={onOpenFile} onPermission={onPermission} />
+            ),
+          )}
           {i === turns.length - 1 && running && !waitingPermission && (
             <div className="tl-item dot-pending">
               <div className="working">Claude đang làm việc…</div>
@@ -673,12 +693,34 @@ export function Transcript({
       ))}
     </div>
   );
+}
 
-  function renderUnit(it: Exclude<Item, UserItem> | ToolEntry[]): ReactNode {
-    if (Array.isArray(it)) return <PlanNote entries={it} steps={steps} prevTodos={prevTodos.get(it[0]!.key) ?? null} />;
+function PlanRow({ entries, steps, prevTodos }: { entries: ToolEntry[]; steps: Map<string, PlanStep>; prevTodos: Todo[] | null }) {
+  return (
+    <div className="tl-item dot-ok">
+      <PlanNote entries={entries} steps={steps} prevTodos={prevTodos} />
+    </div>
+  );
+}
+
+/** Một mục trên đường timeline (mọi thứ Claude làm). */
+const Row = memo(function Row({
+  item: it,
+  running,
+  onOpenFile,
+  onPermission,
+}: {
+  item: Exclude<Item, UserItem>;
+  running: boolean;
+  onOpenFile: (path: string) => void;
+  onPermission: (id: string, allow: boolean, always: boolean) => void;
+}) {
+  return <div className={`tl-item dot-${dotOf(it, running)}`}>{renderItem()}</div>;
+
+  function renderItem(): ReactNode {
     switch (it.type) {
       case 'text':
-        return <AssistantText text={it.text} streaming={it.streaming} />;
+        return <AssistantText text={it.streaming ? completeLines(it.text) : it.text} />;
       case 'tool':
         return <ToolItem item={it} running={running} onOpenFile={onOpenFile} />;
       case 'permission':
@@ -696,4 +738,4 @@ export function Transcript({
         return <LocalItem node={it.node} />;
     }
   }
-}
+});

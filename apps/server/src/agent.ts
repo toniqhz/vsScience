@@ -19,7 +19,7 @@ import {
   type SDKUserMessage,
   type SessionMessage,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { AgentBlock, AgentEvent, AgentMode, AgentSessionInfo, ContextUsage, FileChange } from '@ide/shared';
+import { ARTIFACT_FOLDER, type AgentBlock, type AgentEvent, type AgentMode, type AgentSessionInfo, type ContextUsage, type FileChange } from '@ide/shared';
 import { cliEnv } from './claude-auth.js';
 import { FolderGuard, claudeScratchRoot } from './folderGuard.js';
 import type { ClaudeProfile } from './profile.js';
@@ -51,6 +51,27 @@ const sdkSessions: SessionApi = {
   rename: (id, title, dir) => sdkRenameSession(id, title, { dir }),
   remove: (id, dir) => sdkDeleteSession(id, { dir }),
 };
+
+/**
+ * Dạng chuẩn của một thư mục để so sánh: đường dẫn thật (giải liên kết, ví dụ /tmp → /private/tmp trên Mac),
+ * Unicode dạng dựng sẵn (NFC) và không phân biệt hoa thường trên Mac/Windows. Trên Mac, tên có dấu tiếng Việt
+ * lấy từ hộp chọn thư mục thường ở dạng tách dấu (NFD), còn Claude Code ghi thư mục vào phiên ở dạng NFC:
+ * so từng ký tự thì khác nhau dù là cùng một thư mục.
+ */
+export function canonicalDir(dir: string, platform: NodeJS.Platform = process.platform): string {
+  let p = path.resolve(dir);
+  try {
+    p = realpathSync.native(p);
+  } catch {
+    // thư mục không còn: so theo đường dẫn đã cho
+  }
+  p = p.normalize('NFC').replace(/[\\/]+$/, '');
+  return platform === 'darwin' || platform === 'win32' ? p.toLowerCase() : p;
+}
+
+export function sameDir(a: string, b: string, platform: NodeJS.Platform = process.platform): boolean {
+  return a === b || canonicalDir(a, platform) === canonicalDir(b, platform);
+}
 
 const FILES_MARKER = '\n\nFile liên quan (đường dẫn trong thư mục làm việc):\n';
 
@@ -89,6 +110,7 @@ function systemAppend(cwd: string, scratch: string | null): string {
 - Khi trích dẫn tài liệu PDF, ghi rõ số trang.
 - Thư mục làm việc \`${cwd}\` chứa tài liệu PDF, Word, Excel của người dùng. Không để file tạm hay file rác trong đó; ${tmp}
 - Chỉ đọc, sửa, chạy lệnh với file trong thư mục làm việc và thư mục nháp. Nếu thật sự cần file ở ngoài, nói rõ với người dùng cần file nào và vì sao; người dùng sẽ được hỏi cho phép.
+- Sản phẩm viết cho người dùng (bản tóm tắt, đề cương, ghi chú, báo cáo, bảng so sánh, câu hỏi ôn tập…): mặc định ghi thành file Markdown (.md) trong thư mục \`${path.join(cwd, ARTIFACT_FOLDER)}\` (tự tạo nếu chưa có), tên file tiếng Việt ngắn gọn nói rõ nội dung. App hiện các file này ở mục Artifact để người dùng mở lại. Chỉ khi cần hình ảnh, biểu đồ hay tương tác mới viết trang .html (cũng trong thư mục đó; thư viện vẽ biểu đồ nạp qua CDN được). Người dùng yêu cầu Word, Excel hay PDF thì làm đúng định dạng đó. Không đăng lên claude.ai (công cụ Artifact, Claude Docs) trừ khi người dùng yêu cầu rõ. Thư mục làm việc đã có cấu trúc project phân tích (reports/, figures/…) thì theo cấu trúc đó. Hỏi đáp ngắn thì trả lời ngay trong khung chat, không tạo file.
 - Kế hoạch theo bước: mỗi khi đưa ra hoặc thống nhất với người dùng một chuỗi bước họ sẽ đi theo dần qua nhiều lượt (hướng dẫn cài đặt, lộ trình đọc sách theo chương hay theo tuần, soạn đề theo từng phần…), luôn ghi các bước đó bằng TaskCreate, mỗi bước một lần gọi, trong cùng lượt trả lời (nếu TaskCreate/TaskUpdate chưa nạp thì nạp bằng ToolSearch với query "select:TaskCreate,TaskUpdate"). Đây là danh sách của người dùng chứ không chỉ việc của bạn: app ghim nó ở đầu khung chat để họ theo dõi trong hội thoại dài. Viết bằng tiếng Việt cho người dùng đọc:
   - subject: tên bước ngắn gọn.
   - description: tóm tắt 1–3 câu nội dung bước — làm gì, cần gì, nội dung chính (ví dụ các chương và ý chính, file hay trang cần mở).
@@ -474,7 +496,7 @@ export class AgentSession {
   /** Nội dung mọi phiên của thư mục làm việc (để lấy lại các file Claude từng tạo). */
   async allSessionMessages(): Promise<unknown[]> {
     const cwd = this.opts.cwd();
-    const list = (await this.#sessions.list(cwd)).filter((s) => !s.cwd || s.cwd === cwd);
+    const list = (await this.#sessions.list(cwd)).filter((s) => !s.cwd || sameDir(s.cwd, cwd));
     const all: unknown[] = [];
     for (const s of list) all.push(...(await this.#sessions.messages(s.sessionId, cwd).catch(() => [])));
     return all;
@@ -484,7 +506,7 @@ export class AgentSession {
     const cwd = this.opts.cwd();
     const list = await this.#sessions.list(cwd);
     return list
-      .filter((s) => !s.cwd || s.cwd === cwd)
+      .filter((s) => !s.cwd || sameDir(s.cwd, cwd))
       .sort((a, b) => b.lastModified - a.lastModified)
       .map((s) => ({
         id: s.sessionId,

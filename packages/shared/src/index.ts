@@ -207,6 +207,9 @@ export interface PlanUsage {
 }
 
 /** Gói tùy chọn (thư viện Python cài thêm khi người dùng đồng ý), ví dụ gói phân tích số liệu. */
+/** Thư mục trong thư mục làm việc chứa sản phẩm Claude viết cho người dùng (ghi chú .md, trang .html…). */
+export const ARTIFACT_FOLDER = 'artifact';
+
 /**
  * Sản phẩm Claude tạo ra khi làm việc với thư mục này: file mới trong thư mục (ghi chú, bản tóm tắt, đề…)
  * hoặc trang đăng lên claude.ai.
