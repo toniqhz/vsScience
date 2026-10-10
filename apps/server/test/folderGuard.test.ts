@@ -25,6 +25,15 @@ describe('FolderGuard', () => {
     expect(bash('curl -s https://example.com/a/b | head')).toEqual([]);
   });
 
+  it('macOS: tên thư mục có dấu dạng NFD vẫn khớp lệnh gõ dạng NFC, không phân biệt hoa thường', () => {
+    const ws = '/Users/a/Downloads/BF4605_Kỹ thuật phân tích và chuẩn đoán phân tử copy'.normalize('NFD');
+    const mac = new FolderGuard(() => [ws], { platform: 'darwin', home: '/Users/a' });
+    const nfc = ws.normalize('NFC');
+    expect(mac.outside('Bash', { command: `cd "${nfc}/Slide 20261" && ls -la` }, ws)).toEqual([]);
+    expect(mac.outside('Read', { file_path: `${nfc.toUpperCase()}/a.pptx` }, ws)).toEqual([]);
+    expect(mac.outside('Bash', { command: 'ls /Users/a/Downloads' }, ws)).toEqual(['/Users/a/Downloads']);
+  });
+
   it('khóa PDF trong code Python ("/XObject", "/Width") không phải đường dẫn', () => {
     const code = `python3 -I -c "
 import pypdf

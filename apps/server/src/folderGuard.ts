@@ -87,6 +87,8 @@ export function shellWords(src: string, mode: ShellMode = 'posix'): string[] {
 export class FolderGuard {
   readonly #p: typeof path.posix;
   readonly #win: boolean;
+  /** Hệ thống file không phân biệt hoa thường (macOS, Windows mặc định). */
+  readonly #fold: boolean;
   readonly #env: NodeJS.ProcessEnv;
   readonly #home: string;
   readonly #system: string[];
@@ -96,7 +98,9 @@ export class FolderGuard {
     private readonly roots: () => string[],
     private readonly opts: GuardOptions = {},
   ) {
-    this.#win = (opts.platform ?? process.platform) === 'win32';
+    const platform = opts.platform ?? process.platform;
+    this.#win = platform === 'win32';
+    this.#fold = this.#win || platform === 'darwin';
     this.#p = this.#win ? path.win32 : path.posix;
     this.#env = opts.env ?? process.env;
     this.#home = opts.home ?? homedir();
@@ -112,8 +116,17 @@ export class FolderGuard {
     return key ? this.#env[key] : undefined;
   }
 
+  /**
+   * Dạng so sánh của đường dẫn: macOS lưu tên có dấu (tiếng Việt) dạng NFD còn lệnh Claude gõ dạng
+   * NFC — trông giống nhau nhưng khác byte. Chuẩn hóa về NFC, và bỏ hoa thường trên macOS/Windows.
+   */
+  #norm(p: string): string {
+    const n = p.normalize('NFC');
+    return this.#fold ? n.toLowerCase() : n;
+  }
+
   #isInside(p: string, root: string): boolean {
-    const rel = this.#p.relative(root, p);
+    const rel = this.#p.relative(this.#norm(root), this.#norm(p));
     return rel === '' || (!rel.startsWith('..') && !this.#p.isAbsolute(rel));
   }
 
@@ -160,7 +173,7 @@ export class FolderGuard {
     for (const root of [...this.roots(), ...(this.opts.extraAllowed ?? [])]) {
       if (root.endsWith('*')) {
         const prefix = root.slice(0, -1);
-        if (this.#win ? p.toLowerCase().startsWith(prefix.toLowerCase()) : p.startsWith(prefix)) return true;
+        if (this.#norm(p).startsWith(this.#norm(prefix))) return true;
       } else if (this.#isInside(p, root)) {
         return true;
       }
