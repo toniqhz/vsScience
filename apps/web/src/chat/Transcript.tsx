@@ -3,10 +3,13 @@ import { connectorDetail, connectorTitle } from './connectors';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { FileChange } from '@ide/shared';
+import { useWorkspace } from '../api/workspace';
 import { baseName } from '../fileTypes';
+import { useWorkbench } from '../workbenchContext';
 import type { Item, LocalNode } from './agentStore';
 import { COMMANDS } from './commands';
 import { ContextCard } from './ContextMeter';
+import { parseDocLink } from './docLink';
 import { derivePlan, PLAN_TOOLS, type PlanStep } from './plan';
 import { stepIcon } from './PlanPanel';
 
@@ -42,7 +45,22 @@ const nfc = (s: string) => s.normalize('NFC');
 const cleanError = (s: string) => s.replace(/<\/?tool_use_error>/g, '').trim();
 
 /** Câu trả lời của Claude: markdown, link mở trong tab mới. */
-const AGENT_LABELS: Record<string, string> = { reviewer: 'phản biện', Explore: 'tìm kiếm', Plan: 'lập kế hoạch' };
+const AGENT_LABELS: Record<string, string> = {
+  reviewer: 'phản biện',
+  Explore: 'tìm kiếm',
+  Plan: 'lập kế hoạch',
+  'phan-bien-tai-lieu': 'phản biện tài liệu',
+  'kiem-tra-trich-dan': 'kiểm tra trích dẫn',
+  'danh-gia-de-thi': 'đánh giá đề thi',
+};
+
+/** Subagent phản biện: tiêu đề riêng trong khung chat. */
+const REVIEW_AGENTS: Record<string, string> = {
+  reviewer: 'Phản biện độc lập',
+  'phan-bien-tai-lieu': 'Phản biện tài liệu (Opus)',
+  'kiem-tra-trich-dan': 'Kiểm tra trích dẫn',
+  'danh-gia-de-thi': 'Đánh giá đề thi (Opus)',
+};
 
 /** Tên thân thiện của subagent. */
 export function agentLabel(name: string): string {
@@ -54,7 +72,36 @@ function completeLines(text: string): string {
   return text.slice(0, text.lastIndexOf('\n') + 1);
 }
 
-const MARKDOWN_COMPONENTS = { a: ({ children, href }: { children?: ReactNode; href?: string }) => <a href={href} target="_blank" rel="noreferrer">{children}</a> };
+/** Link trong câu trả lời: link tới tài liệu trong thư mục (dẫn nguồn) mở đúng trang ở khung bên phải; link web mở trình duyệt. */
+function MarkdownLink({ children, href }: { children?: ReactNode; href?: string }) {
+  const { openPath } = useWorkbench();
+  const { info } = useWorkspace();
+  const doc = parseDocLink(href, info?.root);
+  if (!doc) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer">
+        {children}
+      </a>
+    );
+  }
+  const where = doc.find?.page ? ` · trang ${doc.find.page}` : doc.find?.cell ? ` · ô ${doc.find.cell}` : '';
+  return (
+    <a
+      href="#"
+      className="doc-link"
+      title={`Mở ${doc.path}${where}${doc.find?.query ? ` · “${doc.find.query}”` : ''}`}
+      onClick={(e) => {
+        e.preventDefault();
+        openPath(doc.path, doc.find);
+      }}
+    >
+      <span className="codicon codicon-file" />
+      {children}
+    </a>
+  );
+}
+
+const MARKDOWN_COMPONENTS = { a: MarkdownLink };
 
 /**
  * Tách câu trả lời thành các khối Markdown cấp cao nhất (đoạn văn, danh sách, bảng, khối mã…) theo dòng trống,
@@ -228,7 +275,7 @@ function FileChangeCard({
 
 /** Lệnh gọi công cụ đọc PDF hay PowerPoint của app (python ".../pdf.py" text "file.pdf" --pages 3-7, slides.py tương tự). */
 function pdfToolCall(command: string): { tool: 'pdf' | 'slides'; sub: string; file: string; pages?: string; query?: string } | null {
-  const m = /^\s*(?:&\s*)?\S*python[\d.]*(?:\.exe)?["']?\s+["']?[^"'\s]*?[^"']*(pdf|slides)\.py["']?\s+(info|text|search|render)\s+(?:"([^"]+)"|'([^']+)'|(\S+))(.*)$/i.exec(command);
+  const m = /^\s*(?:&\s*)?\S*python[\d.]*(?:\.exe)?["']?\s+["']?[^"'\s]*?[^"']*(pdf|slides)\.py["']?\s+(info|text|search|render|ocr-set)\s+(?:"([^"]+)"|'([^']+)'|(\S+))(.*)$/i.exec(command);
   if (!m) return null;
   const [, toolName, sub, dq, sq, bare, rest = ''] = m;
   const q = /^\s*(?:"([^"]+)"|'([^']+)'|([^-\s]\S*))/.exec(rest);
@@ -239,6 +286,27 @@ function pdfToolCall(command: string): { tool: 'pdf' | 'slides'; sub: string; fi
     pages: /--pages\s+(\S+)/.exec(rest)?.[1]?.replace(/["']/g, ''),
     query: sub === 'search' ? q?.slice(1).find(Boolean) : undefined,
   };
+}
+
+/** Lệnh gọi công cụ tài liệu của app: nhận xét Word, tài liệu tham khảo, xuất Word. */
+function docToolCall(command: string): { icon: string; title: string; detail: string } | null {
+  const m = /^\s*(?:&\s*)?\S*python[\d.]*(?:\.exe)?["']?\s+["']?[^"']*?(docx_comments|cite|md2docx)\.py["']?\s+(.*)$/i.exec(command);
+  if (!m) return null;
+  const tool = m[1]!.toLowerCase();
+  const args = [...m[2]!.matchAll(/"([^"]+)"|'([^']+)'|(\S+)/g)].map((x) => x[1] ?? x[2] ?? x[3] ?? '');
+  const file = (a?: string) => (a ?? '').split(/[\\/]/).pop() ?? '';
+  const style = /--style\s+(\w+)/.exec(m[2]!)?.[1]?.toUpperCase();
+  if (tool === 'docx_comments')
+    return args[0] === 'list'
+      ? { icon: 'codicon-comment-discussion', title: 'Xem nhận xét trong Word', detail: file(args[1]) }
+      : { icon: 'codicon-comment', title: 'Ghi nhận xét vào lề file Word', detail: file(args[1]) };
+  if (tool === 'cite')
+    return {
+      icon: 'codicon-references',
+      title: args[0] === 'check' ? 'Kiểm tra thư viện tài liệu tham khảo' : args[0] === 'format' ? 'Định dạng tài liệu tham khảo' : 'Xem thư viện tài liệu tham khảo',
+      detail: `${file(args[1])}${style ? ` · ${style}` : ''}`,
+    };
+  return { icon: 'codicon-file-text', title: 'Xuất ra Word', detail: `${file(args[0])}${style ? ` · trích dẫn ${style}` : ''}` };
 }
 
 type ToolEntry = Extract<Item, { type: 'tool' }>;
@@ -347,6 +415,14 @@ function ToolItem({ item, running, onOpenFile }: { item: Extract<Item, { type: '
       return <ToolRow icon="codicon-search" title="Tìm file" detail={str(input.pattern)} pending={pending} isError={isError}>{outputBody}</ToolRow>;
     case 'Bash':
     case 'PowerShell': {
+      const docTool = docToolCall(str(input.command));
+      if (docTool) {
+        return (
+          <ToolRow icon={docTool.icon} title={docTool.title} detail={docTool.detail} pending={pending} isError={isError}>
+            {outputBody}
+          </ToolRow>
+        );
+      }
       const pdf = pdfToolCall(str(input.command));
       if (pdf) {
         const name = pdf.file.split(/[\\/]/).pop() ?? pdf.file;
@@ -364,6 +440,8 @@ function ToolItem({ item, running, onOpenFile }: { item: Extract<Item, { type: '
               ? ['codicon-search', 'Tìm trong PDF', `“${pdf.query ?? ''}” · ${name}`]
               : pdf.sub === 'render'
                 ? ['codicon-file-media', 'Xem trang PDF dạng ảnh', `${name}${pages}`]
+                : pdf.sub === 'ocr-set'
+                  ? ['codicon-symbol-text', 'Lưu chữ nhận dạng từ trang quét', `${name}${pages}`]
                 : ['codicon-eye', 'Đọc PDF', `${name}${pages}`];
         return (
           <ToolRow icon={icon} title={title} detail={detail} pending={pending} isError={isError}>
@@ -384,11 +462,11 @@ function ToolItem({ item, running, onOpenFile }: { item: Extract<Item, { type: '
     case 'Task':
     case 'Agent': {
       const agent = str(input.subagent_type);
-      const isReviewer = agent === 'reviewer';
+      const isReviewer = agent in REVIEW_AGENTS;
       return (
         <ToolRow
           icon={isReviewer ? 'codicon-checklist' : 'codicon-hubot'}
-          title={isReviewer ? 'Phản biện độc lập' : agent && agent !== 'general-purpose' ? `Trợ lý ${agentLabel(agent)}` : 'Giao việc cho trợ lý phụ'}
+          title={isReviewer ? REVIEW_AGENTS[agent]! : agent && agent !== 'general-purpose' ? `Trợ lý ${agentLabel(agent)}` : 'Giao việc cho trợ lý phụ'}
           detail={str(input.description)}
           pending={pending}
           isError={isError}
@@ -413,6 +491,14 @@ function ToolItem({ item, running, onOpenFile }: { item: Extract<Item, { type: '
     case 'ExitPlanMode':
       return null;
     default: {
+      if (name === 'mcp__vsscience__search_documents') {
+        const under = str(input.under);
+        return (
+          <ToolRow icon="codicon-search" title="Tìm trong tài liệu" detail={`“${str(input.query)}”${under ? ` · ${under}` : ''}`} pending={pending} isError={isError}>
+            {outputBody}
+          </ToolRow>
+        );
+      }
       // Công cụ của connector (Consensus, Scite, Claude Docs…): tên dễ đọc kèm từ khóa/tham số chính.
       const connector = connectorTitle(name);
       if (connector) {
@@ -633,7 +719,8 @@ const UserBubble = memo(function UserBubble({ item: it }: { item: UserItem }) {
 
 /** Mục không hiển thị gì (công cụ ghi kế hoạch đã gộp vào dòng khác, kết quả lượt không đổi file…). */
 function isHidden(it: Item): boolean {
-  if (it.type === 'tool') return PLAN_TOOLS.has(it.name) || it.name === 'ExitPlanMode';
+  // ToolSearch: bước nạp công cụ (kế hoạch, tìm trong tài liệu…) của Claude Code — không phải việc người dùng cần thấy.
+  if (it.type === 'tool') return PLAN_TOOLS.has(it.name) || it.name === 'ExitPlanMode' || (it.name === 'ToolSearch' && !it.result?.isError);
   if (it.type === 'result') return !it.interrupted && !it.isError && it.changes.length === 0;
   // Câu trả lời mới bắt đầu, chưa xong dòng nào: chưa hiện (vẫn có dòng "Claude đang làm việc…").
   if (it.type === 'text') return it.streaming && !completeLines(it.text).trim();

@@ -302,6 +302,8 @@ export interface ContentSearchResponse {
   truncated: boolean;
   /** PDF không đọc được vì thiếu Python/PyMuPDF (chạy dev). */
   pdfUnavailable?: boolean;
+  /** PDF có trang ảnh quét chưa có chữ (không tìm được trong các trang đó; dùng /ocr để nhận dạng). */
+  scannedPdfs?: { path: string; pages: number }[];
 }
 
 /** Một connector (máy chủ MCP) Claude dùng được: connector của tài khoản claude.ai hoặc cấu hình trên máy. */
@@ -315,4 +317,15 @@ export interface ConnectorInfo {
   source?: string;
   error?: string;
   tools: { name: string; description?: string; readOnly: boolean }[];
+}
+
+/** Bối cảnh của thư mục làm việc (lưu vào CLAUDE.md của thư mục) để Claude viết đúng giọng, đúng chuẩn. */
+export interface FolderContext {
+  topic: string;
+  audience: string;
+  purpose: string;
+  level: string;
+  citationStyle: string;
+  language: string;
+  notes: string;
 }

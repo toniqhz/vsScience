@@ -38,6 +38,56 @@ export const COMMANDS: Command[] = [
     kind: 'prompt',
     template: 'Trộn đề sau thành 4 mã đề A, B, C, D và xuất bảng đáp án: ',
   },
+  {
+    name: 'phan-bien',
+    description: 'Phản biện bài báo, chương sách, báo cáo như người phản biện tạp chí',
+    icon: 'codicon-law',
+    kind: 'prompt',
+    template: 'Phản biện tài liệu sau như người phản biện tạp chí (gọi trợ lý phản biện tài liệu), nêu vấn đề theo mức độ, vị trí và đề xuất sửa: ',
+  },
+  {
+    name: 'kiem-tra-trich-dan',
+    description: 'Kiểm tra trích dẫn có thật và có ủng hộ nhận định không',
+    icon: 'codicon-references',
+    kind: 'prompt',
+    template: 'Kiểm tra các trích dẫn trong tài liệu sau — bài có thật không, thông tin có đúng không, có ủng hộ nhận định không: ',
+  },
+  {
+    name: 'tong-quan',
+    description: 'Viết tổng quan tài liệu có bảng bằng chứng và trích dẫn',
+    icon: 'codicon-library',
+    kind: 'prompt',
+    template:
+      'Viết tổng quan tài liệu theo quy trình (tìm nguồn, lọc, bảng bằng chứng, tổng hợp), dẫn nguồn đầy đủ và lưu vào thư viện tài liệu tham khảo. Chủ đề: ',
+  },
+  {
+    name: 'danh-gia-de',
+    description: 'Đánh giá đề thi: đáp án, độ rõ ràng, phương án nhiễu, mức độ',
+    icon: 'codicon-checklist',
+    kind: 'prompt',
+    template: 'Đánh giá đề thi sau (gọi trợ lý đánh giá đề thi): kiểm tra đáp án đối chiếu tài liệu, độ rõ ràng, phương án nhiễu, mức độ nhận thức: ',
+  },
+  {
+    name: 'nhan-xet-word',
+    description: 'Ghi nhận xét vào lề file Word (bản sao, không sửa nội dung)',
+    icon: 'codicon-comment',
+    kind: 'prompt',
+    template: 'Đọc file Word sau và ghi nhận xét cụ thể vào lề (ghi ra bản sao, không sửa nội dung gốc): ',
+  },
+  {
+    name: 'xuat-word',
+    description: 'Xuất bài viết ra Word kèm trích dẫn và tài liệu tham khảo',
+    icon: 'codicon-file-text',
+    kind: 'prompt',
+    template: 'Xuất bài viết sau ra Word, định dạng trích dẫn và danh mục tài liệu tham khảo theo chuẩn của thư mục: ',
+  },
+  {
+    name: 'ocr',
+    description: 'Nhận dạng chữ trang ảnh quét trong PDF để đọc và tìm được',
+    icon: 'codicon-symbol-text',
+    kind: 'prompt',
+    template: 'Nhận dạng chữ các trang ảnh quét trong file PDF sau (lưu lại để lần sau đọc và tìm được): ',
+  },
 ];
 
 export function findCommand(name: string): Command | undefined {

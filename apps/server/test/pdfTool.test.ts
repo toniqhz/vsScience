@@ -21,6 +21,15 @@ describe('parsePdfToolCommand', () => {
     });
   });
 
+  it('nhận lệnh lưu chữ nhận dạng từ trang quét (ocr-set)', () => {
+    expect(parsePdfToolCommand(`python "${POSIX_TOOL}" ocr-set "a b.pdf" --pages 5 --text-file "/tmp/nhap/trang-5.txt"`, POSIX_TOOL, 'posix')).toEqual({
+      sub: 'ocr-set',
+      file: 'a b.pdf',
+      pages: '5',
+      textFile: '/tmp/nhap/trang-5.txt',
+    });
+  });
+
   it('PowerShell: đường dẫn Windows, toán tử &, khác hoa thường', () => {
     const cmd = `& python.exe "${WIN_TOOL.toLowerCase()}" info "D:\\Tài liệu\\Bài báo.pdf"`;
     expect(parsePdfToolCommand(cmd, WIN_TOOL, 'powershell')).toEqual({ sub: 'info', file: 'D:\\Tài liệu\\Bài báo.pdf' });

@@ -141,9 +141,17 @@ export function ExcelViewer({ path, find: target }: { path: string; find?: FindT
 
   useEffect(() => {
     if (!target) return;
+    // Link chỉ có ô (không kèm cụm từ): chọn thẳng ô đó.
+    if (!target.query.trim()) {
+      if (!book || !target.cell) return;
+      const s = target.sheet !== undefined ? book.wb.SheetNames.indexOf(target.sheet) : sheet;
+      setSheet(s >= 0 ? s : sheet);
+      setSelected(book.X.utils.decode_cell(target.cell));
+      return;
+    }
     pendingRef.current = target;
     setQuery(target.query);
-  }, [target?.nonce]);
+  }, [target?.nonce, book]);
 
   // Từ khóa mới (hoặc mở từ kết quả tìm kiếm): tới ô khớp đầu tiên / ô được chỉ định.
   useEffect(() => {

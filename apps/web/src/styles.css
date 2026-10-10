@@ -3675,3 +3675,165 @@ a.btn {
   white-space: normal;
   text-align: left;
 }
+
+/* Link dẫn nguồn tới tài liệu trong thư mục (bấm để mở đúng trang) */
+.msg-assistant a.doc-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(55, 148, 255, 0.12);
+  color: #8cc4ff;
+  text-decoration: none;
+  white-space: normal;
+}
+
+.msg-assistant a.doc-link:hover {
+  background: rgba(55, 148, 255, 0.24);
+  text-decoration: none;
+}
+
+.msg-assistant a.doc-link .codicon {
+  font-size: 11px;
+  align-self: center;
+}
+
+/* Nhận xét trong file Word: đoạn được nhận xét tô vàng, danh sách nhận xét ở cột bên phải */
+::highlight(docx-comments) {
+  background-color: rgba(255, 196, 0, 0.35);
+}
+
+.word-host {
+  display: flex;
+}
+
+.word-host > .word-container {
+  /* Không định vị tuyệt đối như khung PDF, để chừa chỗ cho cột nhận xét. */
+  position: relative;
+  inset: auto;
+  flex: 1;
+  min-width: 0;
+}
+
+.word-container .docx-comment-ref {
+  font-size: 11px;
+  border-radius: 3px;
+}
+
+.word-container .docx-comment-ref.is-flash {
+  animation: comment-flash 1.2s ease-out;
+}
+
+@keyframes comment-flash {
+  0%, 40% {
+    background: #f8c33c;
+    box-shadow: 0 0 0 3px #f8c33c;
+  }
+  100% {
+    background: transparent;
+    box-shadow: none;
+  }
+}
+
+.word-comments {
+  flex: 0 0 260px;
+  max-width: 40%;
+  overflow-y: auto;
+  border-left: 1px solid var(--border-subtle);
+  background: var(--bg-side);
+  padding: 8px;
+}
+
+.word-comments-title {
+  margin: 2px 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.word-comment {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid #f8c33c;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.word-comment:hover {
+  background: var(--bg-hover);
+}
+
+.word-comment-author {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.word-comment-text {
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.word-comments-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: auto;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+/* Hộp thoại bối cảnh thư mục */
+.folder-context {
+  max-width: 620px;
+}
+
+.folder-context-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 16px 4px;
+}
+
+.folder-context-hint {
+  margin: 0 0 12px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.folder-context-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.folder-context-field > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.folder-context-field input,
+.folder-context-field textarea {
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: 3px;
+  font: inherit;
+  resize: vertical;
+}

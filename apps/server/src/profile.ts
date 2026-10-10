@@ -27,6 +27,8 @@ const APP_ADJUSTMENTS = `# Điều chỉnh khi chạy trong app VsScience (ưu t
 - Mục "Bối cảnh project" ở trên là mẫu để trống. Nếu thư mục làm việc có CLAUDE.md riêng thì dùng bối cảnh trong đó; nếu không, hỏi người dùng khi bối cảnh ảnh hưởng tới kết luận.
 - Với việc đơn giản như tóm tắt, soạn câu hỏi, sửa đề thì không cần nêu giả thuyết hay gọi phản biện. Quy trình lập luận khoa học và subagent phản biện áp dụng cho phân tích có số liệu, kiểm định, mô hình hay kết luận khoa học.`;
 
+const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+
 /** Đọc frontmatter YAML đơn giản (key: value) ở đầu file Markdown. */
 export function parseFrontmatter(src: string): { data: Record<string, string>; body: string } {
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(src);
@@ -105,11 +107,16 @@ export function loadProfile(dir: string | null): ClaudeProfile | null {
     const name = data.name || path.basename(file, '.md');
     if (!data.description || !body.trim()) continue;
     const tools = toList(data.tools);
+    const disallowedTools = toList(data.disallowedTools);
+    // Mỗi việc một mô hình và mức suy nghĩ: phản biện dùng Opus suy nghĩ sâu, kiểm tra trích dẫn dùng Sonnet.
+    const effort = EFFORTS.has(data.effort ?? '') ? (data.effort as AgentDefinition['effort']) : undefined;
     agents[name] = {
       description: data.description,
       prompt: body.trim(),
       ...(tools ? { tools } : {}),
+      ...(disallowedTools ? { disallowedTools } : {}),
       ...(data.model && data.model !== 'inherit' ? { model: data.model } : {}),
+      ...(effort ? { effort } : {}),
     };
     info.agents.push({ name, description: data.description });
   }

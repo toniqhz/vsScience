@@ -3,11 +3,13 @@ import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
+  createSdkMcpServer,
   deleteSession as sdkDeleteSession,
   getSessionMessages as sdkGetSessionMessages,
   listSessions as sdkListSessions,
   query as sdkQuery,
   renameSession as sdkRenameSession,
+  tool as sdkTool,
   type CanUseTool,
   type EffortLevel,
   type McpServerStatus,
@@ -20,11 +22,12 @@ import {
   type SDKUserMessage,
   type SessionMessage,
 } from '@anthropic-ai/claude-agent-sdk';
+import { z } from 'zod';
 import { ARTIFACT_FOLDER, type AgentBlock, type AgentEvent, type AgentMode, type AgentSessionInfo, type ConnectorInfo, type ContextUsage, type FileChange } from '@ide/shared';
 import { cliEnv } from './claude-auth.js';
 import { FolderGuard, claudeScratchRoot } from './folderGuard.js';
 import type { ClaudeProfile } from './profile.js';
-import { parsePdfToolCommand, pdfToolPath, pdfToolPrompt, slidesToolPath, slidesToolPrompt } from './pdfTool.js';
+import { docToolsPrompt, parsePdfToolCommand, pdfToolPath, pdfToolPrompt, slidesToolPath, slidesToolPrompt } from './pdfTool.js';
 import { pythonHome, runtimeKey, runtimePrompt } from './runtime.js';
 
 /** Phần của Query (Agent SDK) mà phiên dùng tới — tách ra để test bằng phiên giả. */
@@ -36,6 +39,40 @@ export interface AgentQuery extends AsyncIterable<SDKMessage> {
   mcpServerStatus?(): Promise<McpServerStatus[]>;
   reconnectMcpServer?(serverName: string): Promise<void>;
   close(): void;
+}
+
+/** Hướng dẫn dùng công cụ tìm trong tài liệu và cách dẫn nguồn để người dùng bấm mở đúng trang. */
+const SEARCH_AND_CITE_PROMPT = `# Tìm trong tài liệu và dẫn nguồn (bắt buộc)
+- Công cụ mcp__vsscience__search_documents tìm một từ/cụm từ trong nội dung mọi PDF, Word, Excel, PowerPoint, ghi chú của thư mục làm việc (không cần dấu) và trả về file + trang/slide/ô + đoạn trích. Dùng nó TRƯỚC khi đọc tài liệu dài, khi cần tìm nguồn cho một nhận định, hay khi người dùng hỏi "tài liệu nào nói về…". Thử vài từ khóa (đồng nghĩa, tiếng Anh) nếu lần đầu không ra. Sau đó đọc đúng các trang tìm được để trích dẫn chính xác.
+- BẮT BUỘC: mỗi khi câu trả lời dựa vào nội dung một tài liệu trong thư mục làm việc, dẫn nguồn bằng LINK MARKDOWN theo đúng mẫu dưới đây (app biến nó thành nút bấm mở đúng trang ở khung bên phải). Không ghi tên file in đậm hay "trang N" trơn thay cho link.
+  Mẫu: [tên ngắn, tr. N](<đường/dẫn/tương/đối#page=N&q=vài từ>)
+  Ví dụ: Pha sáng diễn ra ở màng thylakoid [Quang hợp – Chương 1-5, tr. 1](<Sách tham khảo/Sinh học/Quang hợp - Chương 1-5.pdf#page=1&q=Pha sáng diễn ra ở màng thylakoid>).
+  Ví dụ khác: [Bài giảng, slide 2](<Bài giảng quang hợp.pptx#q=Ty thể tạo ATP>) · [Đề 15 phút](<Đề thi/Đề kiểm tra 15 phút.docx#q=bào quan nào>) · [Ngân hàng câu hỏi, ô B4](<Ngân hàng câu hỏi/Sinh 11.xlsx#cell=Câu hỏi!B4>) · [ghi chú, dòng 3](<ghi chú.md#q=pha sáng>)
+  Quy tắc: đường dẫn tương đối so với thư mục làm việc, luôn đặt trong <…>; page = số thứ tự trang trong file PDF (như "=== Trang N ===" của công cụ PDF / "Trang N" của công cụ tìm, không phải số in trên sách); q = 2–8 từ chép nguyên văn, liền nhau từ chính chỗ đó (app tô sáng) — không bịa; Excel dùng #cell=TênTrangTính!Ô. Đặt link ngay sau ý được dẫn.`;
+
+/** Connector riêng của app (chạy ngay trong app): công cụ tìm trong tài liệu của thư mục làm việc. */
+export const APP_MCP = 'vsscience';
+
+function appMcpServer(searchDocuments: (query: string, under?: string) => Promise<string>) {
+  return createSdkMcpServer({
+    name: APP_MCP,
+    version: '1.0.0',
+    tools: [
+      sdkTool(
+        'search_documents',
+        'Tìm một từ/cụm từ trong NỘI DUNG mọi tài liệu của thư mục làm việc: PDF (theo trang), Word (theo đoạn), ' +
+          'Excel (theo ô), PowerPoint (theo slide), Markdown/văn bản (theo dòng). Không phân biệt hoa thường, không cần dấu ' +
+          '("quang hop" khớp "Quang hợp"). Trả về file, vị trí (Trang N, Slide N, ô, dòng) và đoạn trích. Dùng TRƯỚC khi đọc ' +
+          'sách/tài liệu dài để biết trang nào cần đọc, và để tìm nguồn cho một nhận định. Cụm từ ngắn (1–4 từ) cho nhiều kết quả hơn.',
+        {
+          query: z.string().min(1).max(200).describe('Từ hoặc cụm từ cần tìm'),
+          under: z.string().optional().describe('Chỉ tìm trong thư mục con hoặc file này (đường dẫn tương đối so với thư mục làm việc)'),
+        },
+        async ({ query, under }) => ({ content: [{ type: 'text', text: await searchDocuments(query, under) }] }),
+        { annotations: { readOnlyHint: true } },
+      ),
+    ],
+  });
 }
 
 /** Nguồn connector đáng tin để tự cho phép công cụ chỉ đọc: tài khoản claude.ai và cấu hình riêng của người dùng. */
@@ -429,6 +466,8 @@ export class AgentSession {
       onArtifactLink?: (toolName: string, input: Record<string, unknown>, output: string, cwd: string) => void;
       /** Chạy trước mỗi lượt Claude (ví dụ tự lưu bản). Lỗi ở đây không chặn lượt. */
       beforeTurn?: (text: string) => Promise<void>;
+      /** Tìm trong nội dung các file của thư mục làm việc (công cụ search_documents của Claude); kết quả dạng chữ. */
+      searchDocuments?: (query: string, under?: string) => Promise<string>;
       /** Thư mục gốc chứa thư mục nháp của mỗi thư mục làm việc (script tạm của Claude). */
       scratchRoot?: string;
       /** Hồ sơ Claude dựng sẵn, đọc lại mỗi khi bắt đầu phiên. */
@@ -475,7 +514,8 @@ export class AgentSession {
     const cwd = this.opts.cwd();
     // Cài thêm gói thư viện thì khởi động lại phiên (tiếp tục đúng hội thoại) để Claude thấy thư viện mới.
     const needsRestart =
-      !this.#query || this.#cwd !== cwd || this.#applied?.effort !== settings.effort || this.#runtime !== runtimeKey();
+      !this.#query || this.#cwd !== cwd || this.#applied?.effort !== settings.effort || this.#runtime !== runtimeKey() || this.#restartRequested;
+    this.#restartRequested = false;
     if (needsRestart) {
       await this.#stop();
       this.#start(settings, cwd);
@@ -527,6 +567,13 @@ export class AgentSession {
     }
   }
 
+  #restartRequested = false;
+
+  /** Lượt sau mở lại phiên (tiếp tục đúng hội thoại), ví dụ sau khi bối cảnh thư mục trong CLAUDE.md đổi. */
+  requestRestart() {
+    if (this.#query) this.#restartRequested = true;
+  }
+
   #mcpCache: { at: number; statuses: McpServerStatus[] } | null = null;
   #probe: Promise<McpServerStatus[]> | null = null;
 
@@ -553,10 +600,12 @@ export class AgentSession {
    */
   async connectors(refresh = false): Promise<ConnectorInfo[]> {
     if (refresh) this.#mcpCache = null;
-    if (this.#query) return (await this.#mcpStatuses(refresh ? 0 : 15_000)).map(toConnectorInfo);
-    if (!refresh && this.#mcpCache && Date.now() - this.#mcpCache.at < 60_000) return this.#mcpCache.statuses.map(toConnectorInfo);
+    // Connector riêng của app (tìm trong tài liệu) không phải connector người dùng quản lý: không liệt kê.
+    const visible = (list: McpServerStatus[]) => list.filter((s) => s.name !== APP_MCP).map(toConnectorInfo);
+    if (this.#query) return visible(await this.#mcpStatuses(refresh ? 0 : 15_000));
+    if (!refresh && this.#mcpCache && Date.now() - this.#mcpCache.at < 60_000) return visible(this.#mcpCache.statuses);
     this.#probe ??= this.#probeConnectors().finally(() => (this.#probe = null));
-    return (await this.#probe).map(toConnectorInfo);
+    return visible(await this.#probe);
   }
 
   async #probeConnectors(): Promise<McpServerStatus[]> {
@@ -715,6 +764,11 @@ export class AgentSession {
     const guard = new FolderGuard(() => roots, { extraAllowed });
     const canUseTool: CanUseTool = (toolName, toolInput, { signal, suggestions, mcpServer }) =>
       new Promise<PermissionResult>(async (resolve) => {
+        // Công cụ riêng của app (tìm trong tài liệu): chỉ đọc, luôn cho phép.
+        if (mcpServer?.source === 'sdk' && mcpServer.name === APP_MCP && toolName.startsWith(`mcp__${APP_MCP}__`)) {
+          resolve({ behavior: 'allow', updatedInput: toolInput });
+          return;
+        }
         // Connector (claude.ai hoặc cấu hình riêng): công cụ tự khai là chỉ đọc (tìm bài báo, tra cứu…) thì cho phép ở mọi chế độ.
         if (toolName.startsWith('mcp__') && isTrustedReadOnlyMcpTool(toolName, mcpServer, await this.#mcpStatuses())) {
           resolve({ behavior: 'allow', updatedInput: toolInput });
@@ -772,10 +826,11 @@ export class AgentSession {
         CLAUDE_CODE_ENABLE_TODO_TOOLS: '1',
       }),
       settingSources: ['user', 'project', 'local'],
+      ...(this.opts.searchDocuments ? { mcpServers: { [APP_MCP]: appMcpServer(this.opts.searchDocuments) } } : {}),
       systemPrompt: {
         type: 'preset',
         preset: 'claude_code',
-        append: [systemAppend(cwd, scratch), runtimePrompt(), pythonHome() ? pdfToolPrompt(pdfTool) : null, pythonHome() ? slidesToolPrompt(slidesTool) : null, profile?.systemAppend].filter(Boolean).join('\n\n'),
+        append: [systemAppend(cwd, scratch), runtimePrompt(), pythonHome() ? pdfToolPrompt(pdfTool) : null, pythonHome() ? slidesToolPrompt(slidesTool) : null, pythonHome() ? docToolsPrompt() : null, this.opts.searchDocuments ? SEARCH_AND_CITE_PROMPT : null, profile?.systemAppend].filter(Boolean).join('\n\n'),
       },
       ...(profile && Object.keys(profile.agents).length ? { agents: profile.agents } : {}),
       // Câu hỏi nhiều lựa chọn cần giao diện riêng — chưa hỗ trợ.

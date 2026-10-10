@@ -4,11 +4,16 @@
   python pdf.py text   <file.pdf> [--pages 3-7,10]     chữ theo từng trang, có đánh dấu số trang
   python pdf.py search <file.pdf> "<từ khóa>"          các trang có từ khóa, kèm đoạn trích
   python pdf.py render <file.pdf> --pages 5 --out DIR  chụp trang thành ảnh PNG (xem hình, công thức, bản quét)
+  python pdf.py ocr-set <file.pdf> --pages 5 --text-file F  lưu chữ đã đọc từ ảnh trang quét (UTF-8) để lần sau
+                                                       đọc/tìm được ngay, không phải chụp lại
+
+Trang ảnh quét đã có chữ lưu bằng ocr-set thì text/search dùng chữ đó (ghi rõ là chữ nhận dạng từ ảnh).
 
 Số trang là số thứ tự trong file (trang 1 là trang đầu tiên); nếu sách in số trang khác thì có ghi kèm.
 """
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -86,6 +91,29 @@ def page_text(page) -> str:
     return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
 
+def ocr_path(pdf_path: str) -> str:
+    """File ẩn cạnh PDF chứa chữ đã nhận dạng từ ảnh các trang quét: .<tên file>.ocr.json"""
+    d, name = os.path.split(os.path.abspath(pdf_path))
+    return os.path.join(d, f".{name}.ocr.json")
+
+
+def load_ocr(pdf_path: str) -> dict:
+    try:
+        with open(ocr_path(pdf_path), encoding="utf-8") as f:
+            pages = json.load(f).get("pages", {})
+        return {int(k): str(v) for k, v in pages.items()}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def page_body(page, ocr: dict) -> tuple[str, bool]:
+    """(chữ của trang, có phải chữ nhận dạng từ ảnh không)."""
+    text = page_text(page)
+    if not text and ocr.get(page.number + 1):
+        return ocr[page.number + 1].strip(), True
+    return text, False
+
+
 def cmd_info(doc, _args) -> None:
     meta = {k: v for k, v in (doc.metadata or {}).items() if v and k in ("title", "author", "subject", "creationDate")}
     print(f"Số trang: {doc.page_count}")
@@ -93,8 +121,14 @@ def cmd_info(doc, _args) -> None:
         print(f"{k}: {v}")
     scanned = [p.number + 1 for p in doc if not p.get_text("text").strip()]
     if scanned:
-        shown = ", ".join(map(str, scanned[:30])) + (" …" if len(scanned) > 30 else "")
-        print(f"Trang không có lớp chữ (ảnh quét, cần render để xem): {shown}")
+        ocr = load_ocr(doc.name)
+        todo = [n for n in scanned if n not in ocr]
+        done = len(scanned) - len(todo)
+        if todo:
+            shown = ", ".join(map(str, todo[:30])) + (" …" if len(todo) > 30 else "")
+            print(f"Trang không có lớp chữ (ảnh quét, cần render để xem): {shown}")
+        if done:
+            print(f"{done} trang ảnh quét đã có chữ nhận dạng (ocr-set), text/search đọc được.")
     toc = doc.get_toc(simple=True)
     if toc:
         print("\nMục lục (cấp · tiêu đề · trang):")
@@ -108,10 +142,14 @@ def cmd_info(doc, _args) -> None:
 
 def cmd_text(doc, args) -> None:
     pages = parse_pages(args.pages, doc.page_count)
+    ocr = load_ocr(doc.name)
     out, used = [], 0
     for n in pages:
         page = doc[n - 1]
-        body = page_text(page) or "[Trang không có lớp chữ — có thể là ảnh quét; dùng lệnh render để xem]"
+        body, from_ocr = page_body(page, ocr)
+        if from_ocr:
+            body = "[Chữ nhận dạng từ ảnh trang quét]\n" + body
+        body = body or "[Trang không có lớp chữ — có thể là ảnh quét; dùng lệnh render để xem]"
         chunk = f"=== Trang {n}{label(page)} ===\n{body}\n"
         if used + len(chunk) > MAX_TEXT and out:
             out.append(f"[Dừng ở trước trang {n} vì đã dài; đọc tiếp bằng --pages {n}-{pages[-1]}]")
@@ -124,8 +162,9 @@ def cmd_text(doc, args) -> None:
 def cmd_search(doc, args) -> None:
     query = unicodedata.normalize("NFC", args.query).casefold()
     hits = 0
+    ocr = load_ocr(doc.name)
     for page in doc:
-        text = page_text(page)
+        text, _ = page_body(page, ocr)
         low = text.casefold()
         start = low.find(query)
         if start < 0:
@@ -161,22 +200,42 @@ def cmd_render(doc, args) -> None:
         print(path)
 
 
+def cmd_ocr_set(doc, args) -> None:
+    pages = parse_pages(args.pages, doc.page_count) if args.pages else []
+    if len(pages) != 1:
+        fail("ocr-set cần đúng một trang: --pages N")
+    if not args.text_file or not os.path.isfile(args.text_file):
+        fail("Cần --text-file <file chữ UTF-8> chứa chữ đã đọc từ ảnh trang.")
+    with open(args.text_file, encoding="utf-8") as f:
+        text = unicodedata.normalize("NFC", f.read()).strip()
+    if not text:
+        fail("File chữ trống.")
+    path = ocr_path(doc.name)
+    data = {"version": 1, "pages": {str(k): v for k, v in load_ocr(doc.name).items()}}
+    data["pages"][str(pages[0])] = text
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=1)
+    print(f"Đã lưu chữ trang {pages[0]} ({len(text)} ký tự). Đã có chữ cho {len(data['pages'])} trang ảnh quét của file này.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Đọc PDF cho Claude")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name in ("info", "text", "search", "render"):
+    for name in ("info", "text", "search", "render", "ocr-set"):
         p = sub.add_parser(name)
         p.add_argument("file")
         if name == "search":
             p.add_argument("query")
-        if name in ("text", "render"):
+        if name in ("text", "render", "ocr-set"):
             p.add_argument("--pages")
+        if name == "ocr-set":
+            p.add_argument("--text-file")
         if name == "render":
             p.add_argument("--out")
             p.add_argument("--dpi", type=int, default=110)
     args = parser.parse_args()
     doc = open_pdf(args.file)
-    {"info": cmd_info, "text": cmd_text, "search": cmd_search, "render": cmd_render}[args.cmd](doc, args)
+    {"info": cmd_info, "text": cmd_text, "search": cmd_search, "render": cmd_render, "ocr-set": cmd_ocr_set}[args.cmd](doc, args)
 
 
 if __name__ == "__main__":

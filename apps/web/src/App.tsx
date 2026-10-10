@@ -12,6 +12,7 @@ import { baseName } from './fileTypes';
 import { ArtifactsView } from './sidebar/ArtifactsView';
 import { ChangesView } from './sidebar/ChangesView';
 import { ConnectorsView } from './sidebar/ConnectorsView';
+import { FolderContextDialog } from './explorer/FolderContextDialog';
 import { SearchView } from './sidebar/SearchView';
 import { SessionsView } from './sidebar/SessionsView';
 import { WorkbenchContext, type SnapshotRef } from './workbenchContext';
@@ -48,11 +49,13 @@ function ActivityBar({
   sideOpen,
   onSelect,
   changeCount,
+  onContext,
 }: {
   view: SideView;
   sideOpen: boolean;
   onSelect: (v: SideView) => void;
   changeCount: number;
+  onContext: () => void;
 }) {
   return (
     <nav className="activity-bar">
@@ -68,7 +71,7 @@ function ActivityBar({
         </button>
       ))}
       <div className="activity-spacer" />
-      <button className="activity-item" title="Cài đặt (sắp có)" disabled>
+      <button className="activity-item" title="Bối cảnh thư mục (chủ đề, người đọc, chuẩn trích dẫn…)" onClick={onContext}>
         <span className="codicon codicon-settings-gear" />
       </button>
     </nav>
@@ -134,6 +137,7 @@ function useChanges() {
  */
 function Workbench() {
   const [view, setView] = useState<SideView>('files');
+  const [contextOpen, setContextOpen] = useState(false);
   const [sideOpen, setSideOpen] = useState(true);
   const [filesOpen, setFilesOpen] = useState(false);
   const [panelCount, setPanelCount] = useState(0);
@@ -194,9 +198,9 @@ function Workbench() {
 
   /** Mở file theo đường dẫn tương đối (từ thẻ thay đổi file, mục Thay đổi…). */
   const openPath = useCallback(
-    (path: string) => {
-      const node = findNode(tree?.root, path);
-      if (node?.type === 'file') openFile(node);
+    (path: string, find?: Omit<FindTarget, 'nonce'>) => {
+      const node = findNode(tree?.root, path) ?? findNode(tree?.root, path.normalize('NFC'));
+      if (node?.type === 'file') openFile(node, find);
     },
     [tree, openFile],
   );
@@ -252,7 +256,13 @@ function Workbench() {
     <WorkbenchContext.Provider value={actions}>
       <div className="workbench">
         <div className="workbench-main">
-          <ActivityBar view={view} sideOpen={sideOpen} onSelect={selectView} changeCount={changes.data?.files.length ?? 0} />
+          <ActivityBar
+            view={view}
+            sideOpen={sideOpen}
+            onSelect={selectView}
+            changeCount={changes.data?.files.length ?? 0}
+            onContext={() => setContextOpen(true)}
+          />
           <Allotment proportionalLayout={false}>
             <Allotment.Pane preferredSize={260} minSize={180} maxSize={480} visible={sideOpen} snap>
               {/* Giữ các view luôn gắn để không mất trạng thái (cây đang mở, ô tìm kiếm) khi chuyển. */}
@@ -287,6 +297,7 @@ function Workbench() {
         </div>
         <StatusBar activePath={activePath} filesOpen={filesOpen} hasFiles={hasFiles} onToggleFiles={() => setFilesOpen((o) => !o)} />
       </div>
+      {contextOpen && <FolderContextDialog onClose={() => setContextOpen(false)} />}
     </WorkbenchContext.Provider>
   );
 }

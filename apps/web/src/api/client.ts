@@ -1,5 +1,6 @@
 import type {
   AgentMode,
+  FolderContext,
   ConnectorInfo,
   ContentSearchResponse,
   ArtifactInfo,
@@ -96,6 +97,8 @@ export const api = {
     ((await (await request(`/api/connectors${refresh ? '?refresh=1' : ''}`)).json()) as { connectors: ConnectorInfo[] }).connectors,
   reconnectConnector: async (key: string) =>
     ((await (await request('/api/connectors/reconnect', { key })).json()) as { connectors: ConnectorInfo[] }).connectors,
+  folderContext: async () => (await request('/api/workspace/context')).json() as Promise<FolderContext>,
+  saveFolderContext: async (ctx: FolderContext) => (await request('/api/workspace/context', ctx)).json() as Promise<FolderContext>,
   searchContent: async (q: string) =>
     (await request(`/api/search?q=${encodeURIComponent(q)}`)).json() as Promise<ContentSearchResponse>,
   revealPath: async (path: string) => (await request('/api/fs/reveal', { path })).json() as Promise<{ ok: true }>,

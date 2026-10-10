@@ -14,7 +14,8 @@ import type { Config } from './config.js';
 import { MIME_BY_EXT, PathError, isExecutable, resolveInWorkspace, toRelPosix, validateNewName } from './paths.js';
 import { emptyDocx, emptyXlsx } from './templates.js';
 import { openExternal, reveal } from './openExternal.js';
-import { ContentSearch, flattenFiles } from './search.js';
+import { ContentSearch, flattenFiles, formatForClaude } from './search.js';
+import { readFolderContext, writeFolderContext } from './folderContext.js';
 import { PlanUsageMonitor, type UsageQueryFn } from './usage.js';
 import { PackManager } from './packs.js';
 import { packsDir, pythonHome } from './runtime.js';
@@ -135,6 +136,16 @@ export async function buildApp(
       .recordFiles(workspace.root, paths.map((p) => ({ path: p })))
       .then((added) => added && broadcast({ type: 'artifacts-changed' }))
       .catch((err) => app.log.error(err));
+  const contentSearch = new ContentSearch(opts.readPdf);
+  /** Tìm trong nội dung các file của thư mục làm việc (giới hạn trong thư mục con/file `under` nếu có). */
+  async function searchWorkspace(q: string, under?: string) {
+    const root = workspace.root;
+    const rel = under && path.isAbsolute(under) ? path.relative(root, under) : (under ?? '');
+    const prefix = rel.startsWith('..') ? '' : rel.replace(/\\/g, '/').replace(/^\.?\/+|\/+$/g, '').normalize('NFC');
+    const files = flattenFiles(root, (await buildTree(root)).root).filter((f) => !prefix || f.rel.normalize('NFC') === prefix || f.rel.normalize('NFC').startsWith(`${prefix}/`));
+    return contentSearch.search(files, q);
+  }
+
   const agent = new AgentSession({
     cwd: () => workspace.root,
     claudeBin: config.claudeBin,
@@ -154,6 +165,7 @@ export async function buildApp(
       if (saved) broadcast({ type: 'changes-changed' });
     },
     profile: () => loadProfile(config.profileDir ?? null),
+    searchDocuments: async (q, under) => formatForClaude(await searchWorkspace(q, under), q),
     scratchRoot: config.scratchDir,
     queryFn: opts.queryFn,
     sessions: opts.sessions,
@@ -216,6 +228,30 @@ export async function buildApp(
   });
 
   app.get('/api/workspace', async () => workspace.info());
+
+  /** Bối cảnh thư mục (chủ đề, người đọc, chuẩn trích dẫn…) lưu trong CLAUDE.md của thư mục. */
+  app.get('/api/workspace/context', async () => readFolderContext(workspace.root));
+  app.post<{ Body: Record<string, string> }>(
+    '/api/workspace/context',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: Object.fromEntries(
+            ['topic', 'audience', 'purpose', 'level', 'citationStyle', 'language', 'notes'].map((k) => [k, { type: 'string', maxLength: 4000 }]),
+          ),
+        },
+      },
+    },
+    async (req) => {
+      const ctx = { ...(await readFolderContext(workspace.root)), ...req.body };
+      await writeFolderContext(workspace.root, ctx);
+      // Phiên Claude đọc CLAUDE.md khi bắt đầu: lượt sau mở lại phiên (giữ hội thoại) để thấy bối cảnh mới.
+      agent.requestRestart();
+      return ctx;
+    },
+  );
 
   app.post<{ Body: { path: string } }>(
     '/api/window',
@@ -445,12 +481,8 @@ export async function buildApp(
   app.get('/api/tree', async () => buildTree(workspace.root));
 
   /** Tìm trong nội dung mọi file của thư mục làm việc. */
-  const contentSearch = new ContentSearch(opts.readPdf);
   app.get<{ Querystring: { q?: string } }>('/api/search', async (req) => {
-    const q = (req.query.q ?? '').slice(0, 200);
-    const root = workspace.root;
-    const tree = await buildTree(root);
-    return contentSearch.search(flattenFiles(root, tree.root), q);
+    return searchWorkspace((req.query.q ?? '').slice(0, 200));
   });
 
   app.get<{ Querystring: { path?: string } }>('/api/file', async (req, reply) => {

@@ -34,6 +34,29 @@ export function WordViewer({ path, find }: { path: string; find?: FindTarget }) 
   const rootRef = useRef<HTMLDivElement>(null);
   const [rendered, setRendered] = useState(0);
   const finder = useDomFind(bodyRef, rendered, find);
+  /** Nhận xét (comment) trong file: lấy từ phần docx-preview dựng, hiện thành cột bên phải. */
+  const [comments, setComments] = useState<{ author: string; text: string; ref: HTMLElement }[]>([]);
+  const [showComments, setShowComments] = useState(true);
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const list = [...body.querySelectorAll<HTMLElement>('.docx-comment-popover')].map((pop) => ({
+      author: pop.querySelector('.docx-comment-author')?.textContent?.trim() || 'Không tên',
+      text: [...pop.children]
+        .filter((c) => !c.classList.contains('docx-comment-author') && !c.classList.contains('docx-comment-date'))
+        .map((c) => c.textContent?.trim())
+        .filter(Boolean)
+        .join('\n'),
+      ref: (pop.previousElementSibling as HTMLElement | null) ?? pop,
+    }));
+    setComments(list);
+  }, [rendered]);
+  const jumpToComment = (ref: HTMLElement) => {
+    ref.scrollIntoView({ block: 'center' });
+    ref.classList.remove('is-flash');
+    void ref.offsetWidth;
+    ref.classList.add('is-flash');
+  };
 
   // Tải lại khi file thay đổi trên đĩa (giữ vị trí cuộn).
   useEffect(() => onFileChange(path, () => setReloadKey((k) => k + 1)), [path, onFileChange]);
@@ -61,7 +84,8 @@ export function WordViewer({ path, find }: { path: string; find?: FindTarget }) 
         renderFooters: true,
         renderFootnotes: true,
         renderEndnotes: true,
-        renderComments: false,
+        // Hiện nhận xét (comment) bên lề — Claude ghi nhận xét phản biện vào bản sao file Word.
+        renderComments: true,
         renderChanges: false,
         useBase64URL: true,
       });
@@ -131,13 +155,33 @@ export function WordViewer({ path, find }: { path: string; find?: FindTarget }) 
           </button>
         </span>
         <FindBar rootRef={rootRef} query={finder.query} onQuery={finder.setQuery} count={finder.count} onStep={finder.step} />
+        {comments.length > 0 && (
+          <button
+            className={`icon-btn word-comments-toggle ${showComments ? 'is-active' : ''}`}
+            title={showComments ? 'Ẩn cột nhận xét' : 'Hiện cột nhận xét'}
+            onClick={() => setShowComments((v) => !v)}
+          >
+            <span className="codicon codicon-comment-discussion" /> {comments.length}
+          </button>
+        )}
         <OpenExternalButton path={path} app="Word" />
       </div>
-      <div className="pdf-scroll-host">
+      <div className="pdf-scroll-host word-host">
         <div ref={scrollRef} className="pdf-container word-container">
           <div ref={styleRef} />
           <div ref={bodyRef} className="word-body" style={{ zoom: scale }} />
         </div>
+        {showComments && comments.length > 0 && (
+          <aside className="word-comments" aria-label="Nhận xét">
+            <div className="word-comments-title">Nhận xét ({comments.length})</div>
+            {comments.map((c, i) => (
+              <button key={i} className="word-comment" onClick={() => jumpToComment(c.ref)}>
+                <span className="word-comment-author">{c.author}</span>
+                <span className="word-comment-text">{c.text}</span>
+              </button>
+            ))}
+          </aside>
+        )}
         {status.state === 'loading' && <div className="viewer-overlay">Đang mở tài liệu…</div>}
         {status.state === 'error' && (
           <div className="viewer-overlay is-error">

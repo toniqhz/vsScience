@@ -200,6 +200,12 @@ export function SearchView({ onOpenFile }: { onOpenFile: OpenFile }) {
               <FileGroup key={`${content!.q}:${f.path}`} file={f} node={nodeOf(f)} query={content!.q} onOpenFile={onOpenFile} />
             ))}
             {res?.pdfUnavailable && <div className="side-count">Chưa tìm được trong file PDF: máy thiếu bộ đọc PDF đi kèm app.</div>}
+            {res?.scannedPdfs && res.scannedPdfs.length > 0 && (
+              <div className="side-count" title={res.scannedPdfs.map((p) => `${p.path}: ${p.pages} trang`).join('\n')}>
+                {res.scannedPdfs.length} file PDF có trang ảnh quét chưa có chữ nên không tìm được trong các trang đó. Gõ <code>/ocr</code> trong khung chat
+                để Claude nhận dạng chữ.
+              </div>
+            )}
           </>
         )}
         {q && fold(q).length < 2 && nameResults.length === 0 && <div className="side-count">Không tìm thấy file nào.</div>}

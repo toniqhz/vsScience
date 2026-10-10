@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { ContentMatch, ContentSearchFile, ContentSearchResponse, FileKind, TreeNode } from '@ide/shared';
 import { docxParagraphs, pptxParagraphs, xlsxCellList } from './docText.js';
@@ -165,6 +165,11 @@ export const readPdfPages: PdfReader = (files) =>
     );
   });
 
+/** File ẩn cạnh PDF chứa chữ nhận dạng từ ảnh trang quét (tools/pdf.py ocr-set). */
+export function ocrSidecar(pdfAbs: string): string {
+  return path.join(path.dirname(pdfAbs), `.${path.basename(pdfAbs)}.ocr.json`);
+}
+
 export class ContentSearch {
   #cache = new Map<string, { key: string; units: TextUnit[] | null }>();
   #pdfUnavailable = false;
@@ -173,7 +178,17 @@ export class ContentSearch {
 
   /** Chữ của các file (đọc file mới/đổi, còn lại lấy từ bộ nhớ). */
   async #load(files: SearchFile[]): Promise<void> {
-    const keyOf = (f: SearchFile) => `${f.mtime}:${f.size}`;
+    // PDF: tính cả file chữ nhận dạng từ ảnh trang quét (.<tên>.ocr.json) để đọc lại khi có trang mới được nhận dạng.
+    const ocrStamp = new Map<string, number>();
+    await Promise.all(
+      files
+        .filter((f) => f.kind === 'pdf')
+        .map(async (f) => {
+          const st = await stat(ocrSidecar(f.abs)).catch(() => null);
+          if (st) ocrStamp.set(f.abs, st.mtimeMs);
+        }),
+    );
+    const keyOf = (f: SearchFile) => `${f.mtime}:${f.size}:${ocrStamp.get(f.abs) ?? 0}`;
     const stale = files.filter((f) => this.#cache.get(f.abs)?.key !== keyOf(f));
     const pdfs = stale.filter((f) => f.kind === 'pdf');
     const others = stale.filter((f) => f.kind !== 'pdf');
@@ -226,10 +241,15 @@ export class ContentSearch {
     let total = 0;
     let truncated = false;
     let scanned = 0;
+    const scannedPdfs: { path: string; pages: number }[] = [];
     for (const f of usable) {
       const units = this.#cache.get(f.abs)?.units;
       if (!units) continue;
       scanned++;
+      if (f.kind === 'pdf') {
+        const empty = units.filter((u) => !u.text.trim()).length;
+        if (empty) scannedPdfs.push({ path: f.rel, pages: empty });
+      }
       const file: ContentSearchFile = { path: f.rel, kind: f.kind, total: 0, matches: [] };
       let occurrence = 0;
       for (const u of units) {
@@ -250,6 +270,38 @@ export class ContentSearch {
         break;
       }
     }
-    return { files: out, scanned, truncated, ...(this.#pdfUnavailable && usable.some((f) => f.kind === 'pdf') ? { pdfUnavailable: true } : {}) };
+    return {
+      files: out,
+      scanned,
+      truncated,
+      ...(scannedPdfs.length ? { scannedPdfs } : {}),
+      ...(this.#pdfUnavailable && usable.some((f) => f.kind === 'pdf') ? { pdfUnavailable: true } : {}),
+    };
   }
+}
+
+function scannedNote(res: ContentSearchResponse): string[] {
+  if (!res.scannedPdfs?.length) return [];
+  const list = res.scannedPdfs.slice(0, 10).map((p) => `${p.path} (${p.pages} trang)`).join(', ');
+  return ['', `Lưu ý: có trang ảnh quét chưa có chữ nên không tìm được trong đó: ${list}${res.scannedPdfs.length > 10 ? ', …' : ''}. Cần thì chụp trang (render) để đọc, và lưu chữ bằng ocr-set.`];
+}
+
+/** Kết quả tìm kiếm dạng chữ cho Claude (công cụ search_documents): file, vị trí, đoạn trích. */
+export function formatForClaude(res: ContentSearchResponse, query: string, maxPerFile = 8): string {
+  if (!res.files.length) {
+    return [
+      `Không thấy "${query}" trong nội dung ${res.scanned} file đã đọc.${res.pdfUnavailable ? ' (Chưa đọc được PDF: thiếu bộ đọc PDF.)' : ''} Thử từ khóa khác, từ đồng nghĩa hoặc tiếng Anh.`,
+      ...scannedNote(res),
+    ].join('\n');
+  }
+  const total = res.files.reduce((n, f) => n + f.total, 0);
+  const lines = [`Tìm thấy ${total} chỗ khớp "${query}" trong ${res.files.length} file (đã đọc ${res.scanned} file)${res.truncated ? ', quá nhiều nên chỉ liệt kê một phần' : ''}:`];
+  for (const f of res.files) {
+    lines.push('', `## ${f.path} (${f.total} chỗ)`);
+    for (const m of f.matches.slice(0, maxPerFile)) lines.push(`- ${m.loc}: ${m.snippet.replace(/\s+/g, ' ')}`);
+    if (f.total > maxPerFile) lines.push(`- … còn ${f.total - maxPerFile} chỗ nữa (tìm cụ thể hơn hoặc giới hạn theo thư mục/file)`);
+  }
+  if (res.pdfUnavailable) lines.push('', '(Chưa đọc được nội dung PDF: thiếu bộ đọc PDF.)');
+  lines.push(...scannedNote(res));
+  return lines.join('\n');
 }

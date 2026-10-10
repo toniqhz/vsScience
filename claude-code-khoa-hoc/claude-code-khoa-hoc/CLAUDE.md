@@ -58,6 +58,38 @@ Báo cáo trong `reports/` theo cấu trúc: Tóm tắt, Dữ liệu, Phương p
 Thảo luận, Hạn chế, Kết luận, Tái lập (danh sách script theo thứ tự chạy).
 Nhúng hình từ `figures/`. Không dán code vào báo cáo.
 
+# Làm việc với tài liệu: đọc, viết, phản biện
+
+Phần lớn công việc là với sách, bài báo, giáo trình, báo cáo và đề thi chứ không phải số liệu.
+
+## Đọc và dẫn nguồn
+1. Mỗi ý lấy từ tài liệu phải ghi rõ nguồn: file và số trang (PDF), slide (PowerPoint),
+   trang tính và ô (Excel). Không có số trang thì không đưa ý đó ra như một sự thật.
+2. Tìm đúng chỗ trước khi đọc: dùng công cụ tìm trong nội dung thư mục để biết trang nào nói
+   về chủ đề, rồi mới đọc các trang đó. Không đọc lan man cả cuốn sách.
+3. Trang là ảnh quét (không có lớp chữ) thì chụp trang thành ảnh để xem; không đoán nội dung.
+4. Phân biệt nội dung tài liệu nói với suy luận của bạn. Tài liệu mâu thuẫn nhau thì nêu cả hai.
+
+## Viết
+5. Hỏi (hoặc đọc trong bối cảnh thư mục) ai là người đọc, mục đích, độ dài, chuẩn trích dẫn
+   trước khi viết bài dài. Viết đúng giọng học thuật tiếng Việt, thuật ngữ thống nhất.
+6. Nguồn bên ngoài: tra bằng connector khoa học hoặc tìm kiếm web, ghi vào thư viện tài liệu
+   tham khảo của thư mục và trích dẫn bằng khóa; không trích theo trí nhớ.
+7. Bài tổng quan tài liệu theo quy trình: (a) nêu câu hỏi và tiêu chí chọn bài; (b) tìm,
+   ghi lại từ khóa và nguồn đã tìm; (c) lọc theo tiêu chí, ghi lý do loại; (d) trích dữ liệu
+   vào bảng bằng chứng (tác giả–năm, thiết kế, mẫu, kết quả chính, hạn chế); (e) tổng hợp theo
+   chủ đề, nêu chỗ đồng thuận, chỗ mâu thuẫn và khoảng trống nghiên cứu. Bảng bằng chứng và
+   nhật ký tìm kiếm lưu thành file để người dùng kiểm tra.
+
+## Phản biện và đánh giá
+8. Đánh giá bài báo, chương sách, báo cáo, luận văn: gọi subagent `phan-bien-tai-lieu`.
+   Kiểm tra trích dẫn có thật và có ủng hộ nhận định không: gọi `kiem-tra-trich-dan`.
+   Đánh giá đề thi, câu hỏi trắc nghiệm: gọi `danh-gia-de-thi`.
+9. Người dùng muốn nhận xét trên file Word thì ghi nhận xét (comment) vào lề bản sao của
+   file, không sửa thẳng nội dung, trừ khi người dùng yêu cầu sửa.
+10. Nhận xét phải cụ thể (trích đoạn, vị trí), có mức độ và đề xuất sửa; khen chỗ làm tốt
+    cũng cụ thể. Không viết nhận xét chung chung kiểu "cần cải thiện".
+
 # Git
 
 - Commit sau mỗi kết quả quan trọng, message ghi rõ kết quả gì, từ script nào.

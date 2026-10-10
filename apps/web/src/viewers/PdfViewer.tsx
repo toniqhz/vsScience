@@ -183,6 +183,8 @@ export function PdfViewer({ path, find: target }: { path: string; find?: FindTar
     if (!target || status.state !== 'ready') return;
     const v = viewerRef.current;
     if (v && target.page) v.currentPageNumber = Math.min(target.page, v.pagesCount);
+    // Link chỉ có số trang (không kèm cụm từ): tới trang là đủ.
+    if (!target.query.trim()) return;
     setQuery(target.query);
     pendingStepsRef.current = target.inPage ? { query: target.query, steps: target.inPage } : null;
     // Cùng từ khóa thì hiệu ứng tìm ở trên không chạy lại: tìm luôn từ trang mới.

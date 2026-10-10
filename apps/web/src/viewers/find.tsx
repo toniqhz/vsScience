@@ -36,7 +36,9 @@ export function domMatches(root: Element, query: string): Range[] {
   const q = fold(query.trim().replace(/\s+/g, ' '));
   if (!q) return [];
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode: (n) => (n.parentElement?.closest('style,script,noscript') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    // Bỏ chữ không hiển thị: style/script, nội dung nhận xét Word (hiện ở cột riêng).
+    acceptNode: (n) =>
+      n.parentElement?.closest('style,script,noscript,.docx-comment-popover') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
   });
   // Ghép chữ của mọi nút thành một chuỗi đã bỏ dấu, nhớ vị trí gốc của từng ký tự.
   let folded = '';
