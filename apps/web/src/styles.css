@@ -1595,6 +1595,16 @@ kbd {
   background: #1177bb;
 }
 
+.btn-danger {
+  border-color: transparent;
+  background: #a1260d;
+  color: #fff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #be1100;
+}
+
 .btn:disabled {
   opacity: 0.5;
   cursor: default;
@@ -3374,4 +3384,195 @@ a.btn {
 .pptx-body .pptx-preview-slide-wrapper {
   margin: 0 auto 16px !important;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+}
+
+/* Menu chuột phải (cây thư mục) */
+.context-menu {
+  position: fixed;
+  z-index: 1100;
+  min-width: 220px;
+  padding: 4px;
+  border: 1px solid #454545;
+  border-radius: 6px;
+  background: #252526;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+}
+
+.context-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 10px 0 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.context-menu-item:hover,
+.context-menu-item:focus-visible {
+  outline: none;
+  background: var(--bg-selected-focus);
+  color: var(--text-strong);
+}
+
+.context-menu-item .codicon {
+  width: 16px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.context-menu-item.is-danger,
+.context-menu-item.is-danger .codicon {
+  color: var(--danger);
+}
+
+.context-menu-label {
+  flex: 1;
+}
+
+.context-menu-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.context-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-subtle);
+}
+
+/* Hộp thoại xác nhận (xóa file) */
+.confirm-dialog {
+  max-width: 440px;
+}
+
+.confirm-body {
+  display: flex;
+  gap: 12px;
+  padding: 18px 18px 14px;
+}
+
+.confirm-icon {
+  font-size: 22px;
+  color: #cca700;
+}
+
+.confirm-title {
+  margin-bottom: 4px;
+  font-weight: 600;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+
+.confirm-detail {
+  color: var(--text-muted);
+}
+
+.confirm-footer {
+  justify-content: flex-end;
+}
+
+/* Tìm trong file (Ctrl+F): chỗ khớp tô vàng nhạt, chỗ đang chọn tô cam như VS Code */
+::highlight(find-match) {
+  background-color: rgba(234, 92, 0, 0.33);
+  color: inherit;
+}
+
+::highlight(find-current) {
+  background-color: #f8c33c;
+  color: #1e1e1e;
+}
+
+.find-bar {
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.find-bar .search-input {
+  flex: 0 1 180px;
+  width: 180px;
+  min-width: 70px;
+}
+
+.find-bar .icon-btn {
+  flex: none;
+}
+
+.find-bar .icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.text-viewer-toggle + .find-bar {
+  margin-left: 0;
+}
+
+.sheet-grid td.is-match {
+  background: rgba(234, 92, 0, 0.28);
+}
+
+.sheet-grid td.is-match.is-sel {
+  background: rgba(248, 195, 60, 0.55);
+  color: #fff;
+}
+
+/* Tìm trong nội dung (khung Tìm kiếm bên trái) */
+.search-file {
+  padding-left: 8px;
+}
+
+.search-file .side-row-name {
+  font-weight: 600;
+}
+
+.search-file .side-badge {
+  flex: none;
+}
+
+.search-chevron {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.search-match {
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 8px 2px 40px;
+  line-height: 1.45;
+}
+
+.search-loc {
+  flex: none;
+  color: var(--text-faint);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.search-snippet {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+
+.search-more {
+  padding-left: 40px;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.search-spinner {
+  font-size: 12px;
+}
+
+.side-count.is-error {
+  color: var(--danger);
 }

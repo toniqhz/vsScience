@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type MouseEvent } from 'react';
 import { Tree, type NodeRendererProps, type TreeApi } from 'react-arborist';
 import type { TreeNode } from '@ide/shared';
 import { api } from '../api/client';
 import { useWorkspace } from '../api/workspace';
+import { ContextMenu, type ContextMenuItem } from '../ContextMenu';
 import { FILE_KIND_META } from '../fileTypes';
+import { FILE_MANAGER, IS_DESKTOP } from '../platform';
 import { useElementSize } from '../useElementSize';
 import { OpenFolderDialog } from './OpenFolderDialog';
 
@@ -16,7 +18,11 @@ function parentDir(id: string): string {
   return i < 0 ? '' : id.slice(0, i);
 }
 
+/** Mở menu chuột phải cho một mục của cây (Row do arborist dựng nên không nhận prop riêng được). */
+const RowMenuContext = createContext<(e: MouseEvent, node: TreeNode) => void>(() => {});
+
 function Row({ node, style }: NodeRendererProps<TreeNode>) {
+  const openMenu = useContext(RowMenuContext);
   const d = node.data;
   const isFolder = d.type === 'folder';
   const icon = isFolder
@@ -31,6 +37,10 @@ function Row({ node, style }: NodeRendererProps<TreeNode>) {
       title={d.id}
       // Row của arborist đã tự chọn và gọi onActivate khi bấm; ở đây chỉ cần mở/đóng thư mục.
       onClick={() => isFolder && node.toggle()}
+      onContextMenu={(e) => {
+        node.select();
+        openMenu(e, d);
+      }}
     >
       <span className={`codicon ${isFolder ? (node.isOpen ? 'codicon-chevron-down' : 'codicon-chevron-right') : ''} tree-twistie`} />
       <span className={`codicon ${icon} tree-icon kind-${isFolder ? 'folder' : d.kind}`} />
@@ -98,14 +108,162 @@ function NewItemInput({
   );
 }
 
-export function Explorer({ onOpenFile }: { onOpenFile: (node: TreeNode) => void }) {
+/** Hỏi lại trước khi xóa. App desktop chuyển vào Thùng rác; trình duyệt thì xóa hẳn. */
+function ConfirmDelete({ node, onCancel, onDone }: { node: TreeNode; onCancel: () => void; onDone: () => void }) {
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const isFolder = node.type === 'folder';
+  const trash = IS_DESKTOP
+    ? /Macintosh|Mac OS X/.test(navigator.userAgent)
+      ? 'Thùng rác'
+      : 'Thùng rác (Recycle Bin)'
+    : null;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onCancel();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  const confirm = () => {
+    setBusy(true);
+    setError(null);
+    api
+      .deletePath(node.id)
+      .then(onDone)
+      .catch((e: Error) => {
+        setError(e.message);
+        setBusy(false);
+      });
+  };
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
+      <div className="modal confirm-dialog" role="alertdialog" aria-label="Xác nhận xóa">
+        <div className="confirm-body">
+          <span className="codicon codicon-warning confirm-icon" />
+          <div>
+            <div className="confirm-title">
+              Xóa {isFolder ? 'thư mục' : 'file'} “{node.name}”?
+            </div>
+            <div className="confirm-detail">
+              {isFolder && 'Mọi file bên trong cũng bị xóa. '}
+              {trash
+                ? `${isFolder ? 'Thư mục' : 'File'} được chuyển vào ${trash}, có thể khôi phục lại.`
+                : 'Không khôi phục lại được.'}
+            </div>
+          </div>
+        </div>
+        {error && (
+          <div className="modal-error">
+            <span className="codicon codicon-error" /> {error}
+          </div>
+        )}
+        <div className="modal-footer confirm-footer">
+          <button className="btn" onClick={onCancel}>
+            Hủy
+          </button>
+          <button className="btn btn-danger" autoFocus disabled={busy} onClick={confirm}>
+            {trash ? 'Chuyển vào Thùng rác' : 'Xóa'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function Explorer({
+  onOpenFile,
+  onDeleted,
+}: {
+  onOpenFile: (node: TreeNode) => void;
+  /** Đã xóa một file/thư mục (đường dẫn tương đối): đóng các tab của nó. */
+  onDeleted?: (path: string) => void;
+}) {
   const { info, tree, error, refresh } = useWorkspace();
   const treeRef = useRef<TreeApi<TreeNode> | null>(null);
   const [bodyRef, size] = useElementSize<HTMLDivElement>();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [creating, setCreating] = useState<Creating | null>(null);
   const pendingSelect = useRef<string | null>(null);
+  const [menu, setMenu] = useState<{
+    x: number;
+    y: number;
+    items: ContextMenuItem[];
+  } | null>(null);
+  const [deleting, setDeleting] = useState<TreeNode | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const items = tree?.root.children ?? [];
+
+  const fail = (e: Error) => setNotice(e.message);
+  const reveal = (path: string) => api.revealPath(path).catch(fail);
+  const absPath = (rel: string) => {
+    const root = info?.root ?? '';
+    const sep = root.includes('\\') ? '\\' : '/';
+    return rel ? `${root}${sep}${rel.split('/').join(sep)}` : root;
+  };
+
+  const openMenu = (e: MouseEvent, node: TreeNode | null) => {
+    e.preventDefault();
+    setNotice(null);
+    let list: ContextMenuItem[];
+    if (!node) {
+      list = [
+        {
+          label: `Mở trong ${FILE_MANAGER}`,
+          icon: 'codicon-folder-opened',
+          onClick: () => reveal(''),
+        },
+      ];
+    } else if (node.type === 'folder') {
+      list = [
+        ...(IS_DESKTOP
+          ? [
+              {
+                label: 'Mở trong cửa sổ mới',
+                icon: 'codicon-empty-window',
+                onClick: () => api.openWindow(absPath(node.id)).catch(fail),
+              },
+            ]
+          : []),
+        {
+          label: `Mở trong ${FILE_MANAGER}`,
+          icon: 'codicon-folder-opened',
+          onClick: () => reveal(node.id),
+        },
+        'separator',
+        {
+          label: 'Xóa',
+          icon: 'codicon-trash',
+          danger: true,
+          hint: 'Delete',
+          onClick: () => setDeleting(node),
+        },
+      ];
+    } else {
+      list = [
+        {
+          label: 'Mở',
+          icon: 'codicon-go-to-file',
+          onClick: () => onOpenFile(node),
+        },
+        {
+          label: `Hiện trong ${FILE_MANAGER}`,
+          icon: 'codicon-folder-opened',
+          onClick: () => reveal(node.id),
+        },
+        'separator',
+        {
+          label: 'Xóa',
+          icon: 'codicon-trash',
+          danger: true,
+          hint: 'Delete',
+          onClick: () => setDeleting(node),
+        },
+      ];
+    }
+    setMenu({ x: e.clientX, y: e.clientY, items: list });
+  };
 
   // Sau khi tạo xong, chọn mục mới khi cây đã tải lại.
   useEffect(() => {
@@ -135,7 +293,7 @@ export function Explorer({ onOpenFile }: { onOpenFile: (node: TreeNode) => void 
       </div>
       <div className="sidebar-header">
         <span className="codicon codicon-chevron-down section-chevron" />
-        <span className="sidebar-title workspace-name" title={info?.root}>
+        <span className="sidebar-title workspace-name" title={info?.root} onContextMenu={(e) => openMenu(e, null)}>
           {info?.name ?? '…'}
         </span>
         <span className="header-actions">
@@ -165,7 +323,23 @@ export function Explorer({ onOpenFile }: { onOpenFile: (node: TreeNode) => void 
           }}
         />
       )}
-      <div className="sidebar-body" ref={bodyRef}>
+      <div
+        className="sidebar-body"
+        ref={bodyRef}
+        onKeyDown={(e) => {
+          // Phím Delete (⌘⌫ trên Mac) xóa mục đang chọn, như VS Code.
+          const sel = treeRef.current?.selectedNodes[0]?.data;
+          if (sel && (e.key === 'Delete' || (e.key === 'Backspace' && e.metaKey))) {
+            e.preventDefault();
+            setDeleting(sel);
+          }
+        }}
+      >
+        {notice && (
+          <div className="sidebar-message is-error" onClick={() => setNotice(null)}>
+            {notice}
+          </div>
+        )}
         {error && <div className="sidebar-message is-error">{error}</div>}
         {!error && tree && items.length === 0 && (
           <div className="sidebar-message">
@@ -177,29 +351,43 @@ export function Explorer({ onOpenFile }: { onOpenFile: (node: TreeNode) => void 
         )}
         {tree?.truncated && <div className="sidebar-message">Thư mục quá lớn, chỉ hiện một phần.</div>}
         {size.height > 0 && items.length > 0 && (
-          <Tree<TreeNode>
-            ref={treeRef}
-            data={items}
-            idAccessor="id"
-            childrenAccessor={childrenOf}
-            openByDefault={false}
-            width={size.width}
-            height={size.height}
-            rowHeight={22}
-            indent={12}
-            disableDrag
-            disableDrop
-            disableEdit
-            disableMultiSelection
-            onActivate={(node) => {
-              if (node.data.type === 'file') onOpenFile(node.data);
-            }}
-          >
-            {Row}
-          </Tree>
+          <RowMenuContext.Provider value={openMenu}>
+            <Tree<TreeNode>
+              ref={treeRef}
+              data={items}
+              idAccessor="id"
+              childrenAccessor={childrenOf}
+              openByDefault={false}
+              width={size.width}
+              height={size.height}
+              rowHeight={22}
+              indent={12}
+              disableDrag
+              disableDrop
+              disableEdit
+              disableMultiSelection
+              onActivate={(node) => {
+                if (node.data.type === 'file') onOpenFile(node.data);
+              }}
+            >
+              {Row}
+            </Tree>
+          </RowMenuContext.Provider>
         )}
       </div>
       {dialogOpen && <OpenFolderDialog onClose={() => setDialogOpen(false)} />}
+      {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
+      {deleting && (
+        <ConfirmDelete
+          node={deleting}
+          onCancel={() => setDeleting(null)}
+          onDone={() => {
+            onDeleted?.(deleting.id);
+            setDeleting(null);
+            refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

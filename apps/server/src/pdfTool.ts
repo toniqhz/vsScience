@@ -19,6 +19,11 @@ export function slidesToolPath(): string {
   return path.join(toolsDir(), 'slides.py');
 }
 
+/** Trích chữ nhiều PDF một lượt cho ô tìm kiếm nội dung (tools/pdftext.py), không dành cho Claude. */
+export function pdfTextToolPath(): string {
+  return path.join(toolsDir(), 'pdftext.py');
+}
+
 export type PdfToolSub = 'info' | 'text' | 'search' | 'render';
 
 export interface PdfToolCall {

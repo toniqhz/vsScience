@@ -32,6 +32,12 @@ export function runtimeKey(): string {
     .join(',');
 }
 
+/** Lệnh chạy Python: bản đi kèm app, hoặc Python của máy khi chạy dev. */
+export function pythonExe(home = pythonHome(), platform = process.platform): string {
+  if (!home) return platform === 'win32' ? 'python' : 'python3';
+  return platform === 'win32' ? path.win32.join(home, 'python.exe') : path.posix.join(home, 'bin', 'python3');
+}
+
 /** Thư mục chứa python(.exe) cần đưa lên đầu PATH. */
 function pythonPathDirs(home: string, platform: NodeJS.Platform): string[] {
   return platform === 'win32' ? [home, path.win32.join(home, 'Scripts')] : [path.posix.join(home, 'bin')];

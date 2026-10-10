@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Allotment, LayoutPriority } from 'allotment';
 import 'allotment/dist/style.css';
 import type { DockviewApi } from 'dockview-react';
-import type { ArtifactInfo, ChangesResponse, TreeNode } from '@ide/shared';
+import type { ArtifactInfo, ChangesResponse, FindTarget, TreeNode } from '@ide/shared';
 import { api, hasToken } from './api/client';
 import { WorkspaceProvider, useWorkspace } from './api/workspace';
 import { Explorer } from './explorer/Explorer';
@@ -145,6 +145,11 @@ function Workbench() {
   useEffect(() => {
     dockRef.current?.clear();
   }, [root]);
+  // Tiêu đề cửa sổ theo thư mục: phân biệt được khi mở nhiều cửa sổ.
+  const folderName = info?.name;
+  useEffect(() => {
+    document.title = folderName ? `${folderName} — VsScience` : 'VsScience';
+  }, [folderName]);
 
   const onDockReady = useCallback((api: DockviewApi) => {
     dockRef.current = api;
@@ -158,17 +163,31 @@ function Workbench() {
     });
   }, []);
 
-  const openFile = useCallback((node: TreeNode) => {
+  /** Mở file; `find`: tìm từ khóa trong file và nhảy tới chỗ khớp (từ kết quả tìm kiếm). */
+  const openFile = useCallback((node: TreeNode, find?: Omit<FindTarget, 'nonce'>) => {
     const api = dockRef.current;
     if (!api || node.type !== 'file' || !node.kind) return;
     setFilesOpen(true);
+    const target = find ? { ...find, nonce: Date.now() } : undefined;
     const existing = api.getPanel(node.id);
     if (existing) {
+      if (target) existing.api.updateParameters({ ...(existing.params as FilePanelParams), find: target });
       existing.api.setActive();
       return;
     }
-    const params: FilePanelParams = { path: node.id, kind: node.kind };
+    const params: FilePanelParams = { path: node.id, kind: node.kind, ...(target ? { find: target } : {}) };
     api.addPanel({ id: node.id, component: 'file', title: node.name, params });
+  }, []);
+
+  /** File/thư mục vừa bị xóa: đóng các tab của nó (cả tab so sánh). */
+  const closePath = useCallback((path: string) => {
+    const api = dockRef.current;
+    if (!api) return;
+    const under = (p: string) => p === path || p.startsWith(`${path}/`);
+    for (const panel of [...api.panels]) {
+      const p = (panel.params as { path?: string } | undefined)?.path;
+      if (p && under(p)) panel.api.close();
+    }
   }, []);
 
   /** Mở file theo đường dẫn tương đối (từ thẻ thay đổi file, mục Thay đổi…). */
@@ -237,7 +256,7 @@ function Workbench() {
               {/* Giữ các view luôn gắn để không mất trạng thái (cây đang mở, ô tìm kiếm) khi chuyển. */}
               <div className="side-views">
                 <div className="side-view" hidden={view !== 'files'}>
-                  <Explorer onOpenFile={openFile} />
+                  <Explorer onOpenFile={openFile} onDeleted={closePath} />
                 </div>
                 <div className="side-view" hidden={view !== 'search'}>
                   {view === 'search' && <SearchView onOpenFile={openFile} />}

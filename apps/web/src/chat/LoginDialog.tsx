@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AuthStatus, LoginProgress } from '@ide/shared';
 import { api } from '../api/client';
+import { IS_DESKTOP } from '../platform';
 
 /** Chạy trong app desktop (Electron): mọi cửa sổ mới được mở bằng trình duyệt mặc định của máy. */
-const IS_DESKTOP = /\bElectron\//.test(navigator.userAgent);
 
 const PLAN_LABEL: Record<string, string> = { pro: 'Pro', max: 'Max', team: 'Team', enterprise: 'Enterprise' };
 

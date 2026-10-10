@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -48,6 +48,9 @@ if (sub === 'status') {
 const auth = { authorization: `Bearer ${TOKEN}`, host: '127.0.0.1:4317' };
 const opened: string[] = [];
 
+const windows: string[] = [];
+const revealed: [string, boolean][] = [];
+
 beforeAll(async () => {
   base = realpathSync(mkdtempSync(path.join(tmpdir(), 'ide-test-')));
   root = path.join(base, 'ws');
@@ -79,7 +82,7 @@ beforeAll(async () => {
       snapshotsDir: path.join(base, 'snapshots'),
       usePolling: false,
     },
-    { watch: false, openExternal: async (abs) => void opened.push(abs) },
+    { watch: false, openExternal: async (abs) => void opened.push(abs), openWindow: async (dir) => void windows.push(dir), reveal: async (abs, isDir) => void revealed.push([abs, isDir]), readPdf: async (files) => new Map(files.map((f) => [f, null])) },
   ));
 });
 
@@ -206,6 +209,53 @@ describe('tạo file và thư mục', () => {
   });
 });
 
+describe('tìm trong nội dung file', () => {
+  it('trả về file và chỗ khớp, không cần gõ dấu', async () => {
+    writeFileSync(path.join(root, 'ghi chú.md'), '# Ôn tập\nPhản ứng chuỗi polymerase (PCR)');
+    const res = await app.inject({ url: `/api/search?q=${encodeURIComponent('phan ung')}`, headers: auth });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    const md = body.files.find((f: { path: string }) => f.path === 'ghi chú.md');
+    expect(md).toMatchObject({ kind: 'markdown', total: 1, matches: [{ loc: 'Dòng 2', target: { row: 1, occurrence: 0 } }] });
+    rmSync(path.join(root, 'ghi chú.md'));
+  });
+});
+
+describe('menu chuột phải: hiện trong thư mục, xóa', () => {
+  const post = (url: string, p: string) => app.inject({ method: 'POST', url, headers: auth, payload: { path: p } });
+
+  it('hiện file (chọn trong thư mục cha), thư mục và chính thư mục làm việc', async () => {
+    revealed.length = 0;
+    expect((await post('/api/fs/reveal', 'Chương 2/sach.pdf')).statusCode).toBe(200);
+    expect((await post('/api/fs/reveal', 'Chương 2')).statusCode).toBe(200);
+    expect((await post('/api/fs/reveal', '')).statusCode).toBe(200);
+    expect(revealed).toEqual([
+      [path.join(root, 'Chương 2', 'sach.pdf'), false],
+      [path.join(root, 'Chương 2'), true],
+      [root, true],
+    ]);
+    expect((await post('/api/fs/reveal', '../bi-mat.pdf')).statusCode).toBe(400);
+  });
+
+  it('xóa file, thư mục; xóa liên kết thì không đụng tới file nó trỏ tới; không xóa ra ngoài', async () => {
+    mkdirSync(path.join(root, 'Xóa', 'con'), { recursive: true });
+    writeFileSync(path.join(root, 'Xóa', 'con', 'a.md'), 'a');
+    writeFileSync(path.join(root, 'xoa.md'), 'x');
+    symlinkSync(path.join(base, 'bi-mat.pdf'), path.join(root, 'lien-ket.pdf'));
+    expect((await post('/api/fs/delete', 'xoa.md')).json()).toEqual({ ok: true, trashed: false });
+    expect(existsSync(path.join(root, 'xoa.md'))).toBe(false);
+    expect((await post('/api/fs/delete', 'Xóa')).statusCode).toBe(200);
+    expect(existsSync(path.join(root, 'Xóa'))).toBe(false);
+    expect((await post('/api/fs/delete', 'lien-ket.pdf')).statusCode).toBe(200);
+    expect(existsSync(path.join(base, 'bi-mat.pdf'))).toBe(true);
+    for (const [p, code] of [['khong-co.md', 404], ['../bi-mat.pdf', 400], ['/', 400], ['.', 400]] as const) {
+      expect((await post('/api/fs/delete', p)).statusCode, p).toBe(code);
+    }
+    expect(existsSync(path.join(base, 'bi-mat.pdf'))).toBe(true);
+    expect(existsSync(root)).toBe(true);
+  });
+});
+
 describe('mở thư mục', () => {
   it('duyệt thư mục con, ẩn thư mục ẩn', async () => {
     const res = await app.inject({ url: `/api/fs/dirs?path=${encodeURIComponent(root)}`, headers: auth });
@@ -228,6 +278,17 @@ describe('mở thư mục', () => {
     expect(old.statusCode).toBe(404);
     // quay lại để không ảnh hưởng test khác
     await app.inject({ method: 'POST', url: '/api/workspace', headers: auth, payload: { path: root } });
+  });
+
+  it('mở thư mục trong cửa sổ mới (app desktop), thư mục đang mở giữ nguyên', async () => {
+    const other = path.join(base, 'cua-so');
+    mkdirSync(other);
+    const res = await app.inject({ method: 'POST', url: '/api/window', headers: auth, payload: { path: other } });
+    expect(res.statusCode).toBe(200);
+    expect(windows).toEqual([other]);
+    expect((await app.inject({ url: '/api/workspace', headers: auth })).json()).toMatchObject({ root });
+    const bad = await app.inject({ method: 'POST', url: '/api/window', headers: auth, payload: { path: '/khong/co' } });
+    expect(bad.statusCode).toBe(404);
   });
 
   it.each([

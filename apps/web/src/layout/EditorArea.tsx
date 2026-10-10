@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { DockviewReact, themeDark, type DockviewApi, type IDockviewPanelProps } from 'dockview-react';
 import 'dockview-react/dist/styles/dockview.css';
-import type { FileDiff, FileKind } from '@ide/shared';
+import type { FileDiff, FileKind, FindTarget } from '@ide/shared';
 import { api } from '../api/client';
 import { useWorkspace } from '../api/workspace';
 import { DiffView } from '../chat/Transcript';
@@ -17,7 +17,8 @@ import { TextViewer } from '../viewers/TextViewer';
 import { WordViewer } from '../viewers/WordViewer';
 import { useWorkbench, type SnapshotRef } from '../workbenchContext';
 
-export type FilePanelParams = { path: string; kind: FileKind };
+/** `find`: mở từ kết quả tìm kiếm — khung xem tìm từ khóa và nhảy tới chỗ khớp. */
+export type FilePanelParams = { path: string; kind: FileKind; find?: FindTarget };
 export type DiffPanelParams = { path: string; snapshot?: SnapshotRef };
 export type ArtifactPanelParams = { artifactId: string; title: string; url: string | null; local: boolean; doc: boolean };
 
@@ -28,17 +29,17 @@ function ArtifactPanel({ params }: IDockviewPanelProps<ArtifactPanelParams>) {
 function FilePanel({ params }: IDockviewPanelProps<FilePanelParams>) {
   switch (params.kind) {
     case 'pdf':
-      return <PdfViewer path={params.path} />;
+      return <PdfViewer path={params.path} find={params.find} />;
     case 'excel':
-      return <ExcelViewer path={params.path} />;
+      return <ExcelViewer path={params.path} find={params.find} />;
     case 'markdown':
     case 'text':
     case 'html':
-      return <TextViewer path={params.path} kind={params.kind} />;
+      return <TextViewer path={params.path} kind={params.kind} find={params.find} />;
     case 'image':
       return <ImageViewer path={params.path} />;
     case 'powerpoint':
-      if (/\.pptx$/i.test(params.path)) return <PptxViewer path={params.path} />;
+      if (/\.pptx$/i.test(params.path)) return <PptxViewer path={params.path} find={params.find} />;
       return (
         <div className="placeholder-panel">
           <span className="codicon codicon-preview placeholder-icon kind-powerpoint" />
@@ -47,7 +48,7 @@ function FilePanel({ params }: IDockviewPanelProps<FilePanelParams>) {
         </div>
       );
     case 'word':
-      if (/\.docx$/i.test(params.path)) return <WordViewer path={params.path} />;
+      if (/\.docx$/i.test(params.path)) return <WordViewer path={params.path} find={params.find} />;
       return (
         <div className="placeholder-panel">
           <span className="codicon codicon-file-text placeholder-icon kind-word" />

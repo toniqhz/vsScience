@@ -59,8 +59,20 @@ export function docxParagraphs(data: Uint8Array): string[] {
   return paragraphs;
 }
 
+export interface XlsxCell {
+  sheet: string;
+  ref: string;
+  value: string;
+  formula?: string;
+}
+
 /** Các ô có dữ liệu của file .xlsx, mỗi ô một dòng: "Trang!A1: giá trị (= công thức)". */
 export function xlsxCells(data: Uint8Array): string[] {
+  return xlsxCellList(data).map((c) => `${c.sheet}!${c.ref}: ${c.value}${c.formula ? `   (= ${c.formula})` : ''}`);
+}
+
+/** Các ô có dữ liệu của file .xlsx, theo thứ tự trang tính. */
+export function xlsxCellList(data: Uint8Array): XlsxCell[] {
   const files = unzip(data);
   const text = (name: string) => (files[name] ? strFromU8(files[name]!) : '');
 
@@ -79,7 +91,7 @@ export function xlsxCells(data: Uint8Array): string[] {
     if (id && target) rels.set(id, target.replace(/^\/?xl\//, ''));
   }
 
-  const lines: string[] = [];
+  const cells: XlsxCell[] = [];
   for (const m of text('xl/workbook.xml').matchAll(/<sheet\b[^>]*>/g)) {
     const name = decodeXml(/name="([^"]*)"/.exec(m[0])?.[1] ?? '');
     const rid = /r:id="([^"]+)"/.exec(m[0])?.[1];
@@ -98,10 +110,10 @@ export function xlsxCells(data: Uint8Array): string[] {
       else if (type === 'inlineStr') value = [...body.matchAll(/<t(?:\s[^>]*)?>([^<]*)<\/t>/g)].map((x) => x[1]).join('');
       else if (type === 'b' && value !== undefined) value = value === '1' ? 'TRUE' : 'FALSE';
       if ((value === undefined || value === '') && !formula) continue;
-      lines.push(`${name}!${ref}: ${decodeXml(value ?? '')}${formula ? `   (= ${decodeXml(formula)})` : ''}`);
+      cells.push({ sheet: name, ref, value: decodeXml(value ?? ''), ...(formula ? { formula: decodeXml(formula) } : {}) });
     }
   }
-  return lines;
+  return cells;
 }
 
 /**

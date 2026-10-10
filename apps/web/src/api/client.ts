@@ -1,5 +1,6 @@
 import type {
   AgentMode,
+  ContentSearchResponse,
   ArtifactInfo,
   AgentSessionInfo,
   AuthStatus,
@@ -90,6 +91,12 @@ export const api = {
     new Uint8Array(await (await request(`/api/file?path=${encodeURIComponent(path)}`)).arrayBuffer()),
   openWorkspace: async (path: string) =>
     (await request('/api/workspace', { path })).json() as Promise<WorkspaceInfo>,
+  searchContent: async (q: string) =>
+    (await request(`/api/search?q=${encodeURIComponent(q)}`)).json() as Promise<ContentSearchResponse>,
+  revealPath: async (path: string) => (await request('/api/fs/reveal', { path })).json() as Promise<{ ok: true }>,
+  deletePath: async (path: string) =>
+    (await request('/api/fs/delete', { path })).json() as Promise<{ ok: true; trashed: boolean }>,
+  openWindow: async (path: string) => (await request('/api/window', { path })).json() as Promise<{ ok: true }>,
   listDirs: async (path?: string) =>
     (await request(`/api/fs/dirs${path ? `?path=${encodeURIComponent(path)}` : ''}`)).json() as Promise<DirListing>,
   createFolder: async (parent: string, name: string) =>

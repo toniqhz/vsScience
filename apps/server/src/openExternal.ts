@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import { release } from 'node:os';
+import path from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
@@ -29,7 +30,10 @@ export async function launcherFor(absPath: string, platform: NodeJS.Platform = p
 
 /** Mở file bằng ứng dụng ngoài và không chờ ứng dụng đóng. */
 export async function openExternal(absPath: string): Promise<void> {
-  const { command, args } = await launcherFor(absPath);
+  await spawnDetached(await launcherFor(absPath));
+}
+
+async function spawnDetached({ command, args }: Launcher): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, { detached: true, stdio: 'ignore' });
     child.once('error', (err) => reject(new Error(`Không mở được ứng dụng ngoài (${command}): ${err.message}`)));
@@ -39,4 +43,28 @@ export async function openExternal(absPath: string): Promise<void> {
       resolve();
     });
   });
+}
+
+/**
+ * Lệnh hiện một mục trong trình quản lý file: file thì mở thư mục cha và chọn sẵn file đó,
+ * thư mục thì mở chính thư mục. ("/select," và đường dẫn là hai tham số riêng để tên có dấu
+ * cách vẫn đúng: explorer.exe nhận dạng `/select, "C:\a b\c.pdf"`.)
+ */
+export async function revealLauncherFor(
+  absPath: string,
+  isDir: boolean,
+  platform: NodeJS.Platform = process.platform,
+  wsl = isWsl(),
+): Promise<Launcher> {
+  if (wsl || platform === 'win32') {
+    const win = wsl ? (await execFileAsync('wslpath', ['-w', absPath])).stdout.trim() : absPath;
+    return { command: 'explorer.exe', args: isDir ? [win] : ['/select,', win] };
+  }
+  if (platform === 'darwin') return { command: 'open', args: isDir ? [absPath] : ['-R', absPath] };
+  return { command: 'xdg-open', args: [isDir ? absPath : path.dirname(absPath)] };
+}
+
+/** Hiện file/thư mục trong trình quản lý file của máy (File Explorer, Finder…). */
+export async function reveal(absPath: string, isDir: boolean): Promise<void> {
+  await spawnDetached(await revealLauncherFor(absPath, isDir));
 }

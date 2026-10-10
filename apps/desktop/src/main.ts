@@ -32,13 +32,23 @@ function configureEnv() {
   process.env.IDE_PORT ??= '0';
 }
 
-async function startServer() {
+async function startServer(opts: { workspace?: string; openWindow?: (dir: string) => Promise<void> } = {}) {
   configureEnv();
   // Nạp sau khi đặt biến môi trường vì config đọc chúng lúc khởi tạo.
   const { loadConfig } = await import('../../server/src/config.js');
   const { buildApp } = await import('../../server/src/app.js');
   const config = loadConfig();
-  const { app: server, workspace } = await buildApp(config);
+  if (opts.workspace) config.initialWorkspace = opts.workspace;
+  const { app: server, workspace } = await buildApp(config, {
+    openWindow: opts.openWindow,
+    // Xóa từ menu chuột phải: vào Thùng rác (Recycle Bin / Trash) để lấy lại được.
+    trashItem: (abs) => shell.trashItem(abs),
+    reveal: async (abs, isDir) => {
+      if (!isDir) return shell.showItemInFolder(abs);
+      const err = await shell.openPath(abs);
+      if (err) throw new Error(err);
+    },
+  });
   await server.listen({ host: config.host, port: config.port });
   const { port } = server.server.address() as AddressInfo;
   return { server, workspace, config, url: `http://127.0.0.1:${port}/?token=${encodeURIComponent(config.token)}`, port };
@@ -125,8 +135,11 @@ async function smokeTest(outFile: string) {
   app.exit(result.ok ? 0 : 1);
 }
 
-async function createWindow() {
-  const { url, server } = await startServer();
+/** Mỗi cửa sổ có server riêng (cổng riêng): thư mục làm việc và phiên Claude độc lập với nhau. */
+const windows = new Map<BrowserWindow, { root: () => string; close: () => Promise<void> }>();
+
+async function createWindow(dir?: string) {
+  const { url, server, workspace } = await startServer({ workspace: dir, openWindow });
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -136,6 +149,11 @@ async function createWindow() {
     title: 'VsScience',
     autoHideMenuBar: true,
     webPreferences: { contextIsolation: true, sandbox: true },
+  });
+  windows.set(win, { root: () => workspace.root, close: () => server.close() });
+  win.on('closed', () => {
+    void windows.get(win)?.close();
+    windows.delete(win);
   });
 
   // Link ra ngoài (đăng nhập claude.ai, link trong câu trả lời) mở bằng trình duyệt mặc định.
@@ -149,9 +167,53 @@ async function createWindow() {
       if (/^https?:\/\//.test(target)) void shell.openExternal(target);
     }
   });
+  // Ctrl+Shift+N (⌘⇧N trên Mac): cửa sổ mới.
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && input.shift && (input.control || input.meta) && input.key.toLowerCase() === 'n') {
+      event.preventDefault();
+      void newWindow(win);
+    }
+  });
 
   await win.loadURL(url);
-  app.on('before-quit', () => void server.close());
+}
+
+/** Mở thư mục trong cửa sổ mới; thư mục đã mở ở cửa sổ khác thì chuyển tới cửa sổ đó. */
+async function openWindow(dir: string) {
+  const { sameDir } = await import('../../server/src/agent.js');
+  for (const [win, w] of windows) {
+    if (w.root() && sameDir(w.root(), dir)) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+      return;
+    }
+  }
+  await createWindow(dir);
+}
+
+/** Chọn thư mục rồi mở trong cửa sổ mới. Bỏ chọn thì không làm gì. */
+async function newWindow(parent?: BrowserWindow) {
+  const options: Electron.OpenDialogOptions = {
+    title: 'Mở thư mục trong cửa sổ mới',
+    buttonLabel: 'Mở',
+    properties: ['openDirectory', 'createDirectory'],
+  };
+  const picked = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+  if (picked.canceled || !picked.filePaths[0]) return false;
+  try {
+    await openWindow(picked.filePaths[0]);
+  } catch (err) {
+    dialog.showErrorBox('Không mở được thư mục', String((err as Error)?.message ?? err));
+  }
+  return true;
+}
+
+function focusAny() {
+  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  }
 }
 
 if (smokeArg) {
@@ -164,15 +226,23 @@ if (smokeArg) {
 } else if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    const win = BrowserWindow.getAllWindows()[0];
-    if (win) {
-      if (win.isMinimized()) win.restore();
-      win.focus();
-    }
+  // Mở app thêm lần nữa (menu Start, Shift+bấm biểu tượng trên taskbar…): chọn thư mục cho cửa sổ mới.
+  app.on('second-instance', async () => {
+    focusAny();
+    await newWindow();
   });
   app.whenReady().then(async () => {
-    if (process.platform !== 'darwin') Menu.setApplicationMenu(null);
+    if (process.platform === 'darwin') {
+      app.dock?.setMenu(Menu.buildFromTemplate([{ label: 'Cửa sổ mới…', click: () => void newWindow() }]));
+    } else {
+      Menu.setApplicationMenu(null);
+      // Danh sách tác vụ khi bấm chuột phải biểu tượng trên taskbar Windows.
+      if (process.platform === 'win32') {
+        app.setUserTasks([
+          { program: process.execPath, arguments: '', title: 'Cửa sổ mới', description: 'Mở thư mục trong cửa sổ mới', iconPath: process.execPath, iconIndex: 0 },
+        ]);
+      }
+    }
     try {
       await createWindow();
     } catch (err) {

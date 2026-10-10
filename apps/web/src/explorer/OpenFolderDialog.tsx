@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DirListing } from '@ide/shared';
 import { api } from '../api/client';
 import { useWorkspace } from '../api/workspace';
+import { IS_DESKTOP } from '../platform';
 
 function lastSegment(p: string): string {
   return p.split(/[\\/]/).filter(Boolean).pop() ?? p;
@@ -43,11 +44,10 @@ export function OpenFolderDialog({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const open = (path: string) => {
+  const open = (path: string, newWindow = false) => {
     setBusy(true);
     setError(null);
-    api
-      .openWorkspace(path)
+    (newWindow ? api.openWindow(path) : api.openWorkspace(path))
       .then(onClose)
       .catch((e: Error) => setError(e.message))
       .finally(() => setBusy(false));
@@ -131,6 +131,16 @@ export function OpenFolderDialog({ onClose }: { onClose: () => void }) {
           <button className="btn" onClick={onClose}>
             Hủy
           </button>
+          {IS_DESKTOP && (
+            <button
+              className="btn"
+              title="Mở thư mục trong một cửa sổ khác, cửa sổ này giữ nguyên (Ctrl+Shift+N)"
+              disabled={!listing || busy}
+              onClick={() => listing && open(listing.path, true)}
+            >
+              Mở trong cửa sổ mới
+            </button>
+          )}
           <button className="btn btn-primary" disabled={!listing || busy} onClick={() => listing && open(listing.path)}>
             Mở thư mục này
           </button>

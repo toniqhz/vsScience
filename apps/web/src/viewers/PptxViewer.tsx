@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import type { FindTarget } from '@ide/shared';
 import { api } from '../api/client';
 import { useWorkspace } from '../api/workspace';
+import { FindBar, useDomFind } from './find';
 import { OpenExternalButton } from './OpenExternalButton';
 
 type Status = { state: 'loading' } | { state: 'ready'; slides: number } | { state: 'error'; message: string };
@@ -12,13 +14,16 @@ const GUTTER = 40;
  * Xem file PowerPoint (.pptx) giống xem PDF: các slide xếp dọc, cuộn để xem, chỉ nội dung tĩnh
  * (không hiệu ứng, không chuyển cảnh). Slide co theo bề ngang khung; vẽ lại khi khung đổi cỡ hoặc file đổi trên đĩa.
  */
-export function PptxViewer({ path }: { path: string }) {
+export function PptxViewer({ path, find }: { path: string; find?: FindTarget }) {
   const { onFileChange } = useWorkspace();
   const hostRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<Status>({ state: 'loading' });
   const [reloadKey, setReloadKey] = useState(0);
   const [width, setWidth] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [rendered, setRendered] = useState(0);
+  const finder = useDomFind(bodyRef, rendered, find);
 
   useEffect(() => onFileChange(path, () => setReloadKey((k) => k + 1)), [path, onFileChange]);
 
@@ -61,6 +66,7 @@ export function PptxViewer({ path }: { path: string }) {
       body.replaceChildren(next);
       if (hostRef.current) hostRef.current.scrollTop = scrollTop;
       setStatus({ state: 'ready', slides: previewer.slideCount ?? 0 });
+      setRendered((n) => n + 1);
     })().catch((e: Error) => !cancelled && setStatus({ state: 'error', message: e.message || 'Không mở được file PowerPoint.' }));
     return () => {
       cancelled = true;
@@ -68,15 +74,14 @@ export function PptxViewer({ path }: { path: string }) {
   }, [path, reloadKey, width]);
 
   return (
-    <div className="pdf-viewer">
+    <div className="pdf-viewer" ref={rootRef}>
       <div className="viewer-toolbar">
         <span className="toolbar-group viewer-info">
           <span className="codicon codicon-preview kind-powerpoint" />
           PowerPoint{status.state === 'ready' && status.slides > 0 && ` · ${status.slides} slide`}
         </span>
-        <span className="toolbar-group toolbar-search">
-          <OpenExternalButton path={path} app="PowerPoint" />
-        </span>
+        <FindBar rootRef={rootRef} query={finder.query} onQuery={finder.setQuery} count={finder.count} onStep={finder.step} />
+        <OpenExternalButton path={path} app="PowerPoint" />
       </div>
       <div ref={hostRef} className="pptx-host">
         <div ref={bodyRef} className="pptx-body" />

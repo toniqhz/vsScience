@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import Fastify, { type FastifyRequest } from 'fastify';
 import websocket from '@fastify/websocket';
@@ -13,13 +13,14 @@ import { Snapshots } from './snapshots.js';
 import type { Config } from './config.js';
 import { MIME_BY_EXT, PathError, isExecutable, resolveInWorkspace, toRelPosix, validateNewName } from './paths.js';
 import { emptyDocx, emptyXlsx } from './templates.js';
-import { openExternal } from './openExternal.js';
+import { openExternal, reveal } from './openExternal.js';
+import { ContentSearch, flattenFiles } from './search.js';
 import { PlanUsageMonitor, type UsageQueryFn } from './usage.js';
 import { PackManager } from './packs.js';
 import { packsDir, pythonHome } from './runtime.js';
 import { loadProfile } from './profile.js';
 import { buildTree } from './tree.js';
-import { WorkspaceManager, listDirs } from './workspace.js';
+import { WorkspaceManager, listDirs, validateWorkspaceDir } from './workspace.js';
 
 const ALLOWED_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -54,6 +55,14 @@ export async function buildApp(
     openExternal?: (absPath: string) => Promise<void>;
     /** Truy vấn hạn mức gói Claude.ai (test truyền bản giả). */
     usageQueryFn?: UsageQueryFn;
+    /** App desktop: mở thư mục trong một cửa sổ mới (mỗi cửa sổ có server và phiên Claude riêng). */
+    openWindow?: (dir: string) => Promise<void>;
+    /** Hiện file/thư mục trong trình quản lý file (app desktop dùng API của Electron). */
+    reveal?: (absPath: string, isDir: boolean) => Promise<void>;
+    /** Chuyển vào Thùng rác (app desktop). Không có thì xóa hẳn. */
+    trashItem?: (absPath: string) => Promise<void>;
+    /** Đọc chữ PDF cho ô tìm kiếm (test truyền bản giả thay cho Python). */
+    readPdf?: (files: string[]) => Promise<Map<string, string[] | null>>;
   } = {},
 ) {
   const app = Fastify({ logger: opts.logger ?? false });
@@ -207,6 +216,24 @@ export async function buildApp(
   });
 
   app.get('/api/workspace', async () => workspace.info());
+
+  app.post<{ Body: { path: string } }>(
+    '/api/window',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['path'],
+          properties: { path: { type: 'string', minLength: 1, maxLength: 4096 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!opts.openWindow) return reply.code(404).send({ error: 'Chỉ app desktop mới mở được cửa sổ mới' });
+      await opts.openWindow(await validateWorkspaceDir(req.body.path));
+      return { ok: true };
+    },
+  );
 
   app.post<{ Body: { path: string } }>(
     '/api/workspace',
@@ -408,6 +435,15 @@ export async function buildApp(
 
   app.get('/api/tree', async () => buildTree(workspace.root));
 
+  /** Tìm trong nội dung mọi file của thư mục làm việc. */
+  const contentSearch = new ContentSearch(opts.readPdf);
+  app.get<{ Querystring: { q?: string } }>('/api/search', async (req) => {
+    const q = (req.query.q ?? '').slice(0, 200);
+    const root = workspace.root;
+    const tree = await buildTree(root);
+    return contentSearch.search(flattenFiles(root, tree.root), q);
+  });
+
   app.get<{ Querystring: { path?: string } }>('/api/file', async (req, reply) => {
     const rel = req.query.path ?? '';
     const abs = await resolveInWorkspace(workspace.root, rel);
@@ -433,6 +469,40 @@ export async function buildApp(
       if (isExecutable(abs)) throw new PathError('Không mở file chương trình hoặc script từ app (mở là máy sẽ chạy nó)', 415);
       await (opts.openExternal ?? openExternal)(abs);
       return { ok: true };
+    },
+  );
+
+  /** Hiện file/thư mục trong File Explorer / Finder. Đường dẫn rỗng là chính thư mục làm việc. */
+  app.post<{ Body: { path: string } }>(
+    '/api/fs/reveal',
+    { schema: { body: { type: 'object', required: ['path'], properties: { path: { type: 'string', maxLength: 4096 } } } } },
+    async (req) => {
+      const abs = req.body.path ? await resolveInWorkspace(workspace.root, req.body.path) : workspace.root;
+      await (opts.reveal ?? reveal)(abs, (await stat(abs)).isDirectory());
+      return { ok: true };
+    },
+  );
+
+  /**
+   * Xóa file/thư mục trong thư mục làm việc (app desktop: chuyển vào Thùng rác).
+   * Xóa đúng mục được chọn: là liên kết (symlink) thì xóa liên kết, không đụng tới nơi nó trỏ tới.
+   */
+  app.post<{ Body: { path: string } }>(
+    '/api/fs/delete',
+    { schema: pathBody },
+    async (req) => {
+      const rel = req.body.path.replace(/[\\/]+$/, '');
+      const slash = Math.max(rel.lastIndexOf('/'), rel.lastIndexOf('\\'));
+      const parent = await resolveInWorkspace(workspace.root, slash < 0 ? '' : rel.slice(0, slash));
+      const name = rel.slice(slash + 1);
+      if (!name || name === '.' || name === '..') throw new PathError('Không xóa được thư mục làm việc', 400);
+      const abs = path.join(parent, name);
+      await lstat(abs).catch(() => {
+        throw new PathError('Không tìm thấy', 404);
+      });
+      if (opts.trashItem) await opts.trashItem(abs);
+      else await rm(abs, { recursive: true });
+      return { ok: true, trashed: !!opts.trashItem };
     },
   );
 

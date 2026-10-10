@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import type { FindTarget } from '@ide/shared';
 import type { CellObject, WorkBook, WorkSheet } from 'xlsx';
 import { api } from '../api/client';
 import { useWorkspace } from '../api/workspace';
+import { fold } from '../format';
+import { FindBar } from './find';
 import { OpenExternalButton } from './OpenExternalButton';
 
 type Status = { state: 'loading' } | { state: 'ready' } | { state: 'error'; message: string };
@@ -58,14 +61,42 @@ function cellText(cell: CellObject | undefined): string {
   return String(cell.v);
 }
 
+type CellHit = { s: number; r: number; c: number };
+
+/** Ô có chữ khớp từ khóa trong mọi trang tính (không ẩn), theo thứ tự trang → hàng → cột. */
+function findCells(X: XLSX, wb: WorkBook, query: string): CellHit[] {
+  const q = fold(query.trim().replace(/\s+/g, ' '));
+  if (!q) return [];
+  const hits: CellHit[] = [];
+  wb.SheetNames.forEach((name, s) => {
+    if (wb.Workbook?.Sheets?.[s]?.Hidden) return;
+    const ws = wb.Sheets[name];
+    if (!ws) return;
+    for (const key of Object.keys(ws)) {
+      if (key.startsWith('!')) continue;
+      const { r, c } = X.utils.decode_cell(key);
+      if (r >= MAX_ROWS || c >= MAX_COLS) continue;
+      if (fold(cellText(ws[key] as CellObject).replace(/\s+/g, ' ')).includes(q)) hits.push({ s, r, c });
+    }
+  });
+  return hits.sort((a, b) => a.s - b.s || a.r - b.r || a.c - b.c);
+}
+
 /** Xem file Excel/CSV bằng SheetJS: lưới ô kiểu bảng tính, thẻ trang tính ở dưới, chỉ đọc. */
-export function ExcelViewer({ path }: { path: string }) {
+export function ExcelViewer({ path, find: target }: { path: string; find?: FindTarget }) {
   const { onFileChange } = useWorkspace();
   const [status, setStatus] = useState<Status>({ state: 'loading' });
   const [reloadKey, setReloadKey] = useState(0);
   const [book, setBook] = useState<{ X: XLSX; wb: WorkBook } | null>(null);
   const [sheet, setSheet] = useState(0);
   const [selected, setSelected] = useState<{ r: number; c: number } | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [query, setQuery] = useState('');
+  const deferredQuery = useDeferredValue(query);
+  const [hitIndex, setHitIndex] = useState(0);
+  /** Ô cần tới sau khi tìm (mở từ kết quả tìm kiếm). */
+  const pendingRef = useRef<FindTarget | null>(null);
 
   useEffect(() => onFileChange(path, () => setReloadKey((k) => k + 1)), [path, onFileChange]);
 
@@ -97,6 +128,48 @@ export function ExcelViewer({ path }: { path: string }) {
     };
   }, [path, reloadKey]);
 
+  const hits = useMemo(() => (book ? findCells(book.X, book.wb, deferredQuery) : []), [book, deferredQuery]);
+  const hitKeys = useMemo(() => new Set(hits.filter((h) => h.s === sheet).map((h) => `${h.r}:${h.c}`)), [hits, sheet]);
+
+  const goToHit = (i: number) => {
+    const h = hits[i];
+    if (!h) return;
+    setHitIndex(i);
+    setSheet(h.s);
+    setSelected({ r: h.r, c: h.c });
+  };
+
+  useEffect(() => {
+    if (!target) return;
+    pendingRef.current = target;
+    setQuery(target.query);
+  }, [target?.nonce]);
+
+  // Từ khóa mới (hoặc mở từ kết quả tìm kiếm): tới ô khớp đầu tiên / ô được chỉ định.
+  useEffect(() => {
+    if (!book || !hits.length) return;
+    const want = pendingRef.current;
+    if (want && fold(want.query.trim()) !== fold(deferredQuery.trim())) return;
+    pendingRef.current = null;
+    let i = 0;
+    if (want?.cell && want.sheet !== undefined) {
+      const s = book.wb.SheetNames.indexOf(want.sheet);
+      const { r, c } = book.X.utils.decode_cell(want.cell);
+      i = Math.max(0, hits.findIndex((h) => h.s === s && h.r === r && h.c === c));
+    } else if (want?.row !== undefined) {
+      i = Math.max(0, hits.findIndex((h) => h.r === want.row));
+    }
+    goToHit(i);
+  }, [hits, book]);
+
+  // Cuộn tới ô đang chọn sau khi bảng vẽ xong.
+  useEffect(() => {
+    if (!selected) return;
+    scrollRef.current
+      ?.querySelector(`td[data-rc="${selected.r}:${selected.c}"]`)
+      ?.scrollIntoView({ block: 'center', inline: 'center' });
+  }, [selected, sheet]);
+
   const sheetName = book?.wb.SheetNames[sheet];
   const ws = sheetName ? book?.wb.Sheets[sheetName] : undefined;
   const grid = useMemo(() => (book && ws ? buildGrid(book.X, ws) : null), [book, ws]);
@@ -107,18 +180,24 @@ export function ExcelViewer({ path }: { path: string }) {
   const selContent = selCell?.f ? `=${selCell.f}` : selCell?.v instanceof Date ? cellText(selCell) : selCell?.v !== undefined ? String(selCell.v) : '';
 
   return (
-    <div className="excel-viewer">
+    <div className="excel-viewer" ref={rootRef}>
       <div className="viewer-toolbar formula-bar">
         <span className="cell-address">{selAddress}</span>
         <span className="formula-fx">fx</span>
         <span className="formula-content" title={selContent}>
           {selContent}
         </span>
-        <span className="toolbar-search">
-          <OpenExternalButton path={path} app="Excel" />
-        </span>
+        <FindBar
+          rootRef={rootRef}
+          query={query}
+          onQuery={setQuery}
+          count={query.trim() ? { current: hits.length ? hitIndex + 1 : 0, total: hits.length } : null}
+          onStep={(dir) => hits.length && goToHit((hitIndex + dir + hits.length) % hits.length)}
+          placeholder="Tìm trong bảng tính"
+        />
+        <OpenExternalButton path={path} app="Excel" />
       </div>
-      <div className="sheet-scroll">
+      <div className="sheet-scroll" ref={scrollRef}>
         {grid && X && ws && grid.rows > 0 && (
           <table className="sheet-grid">
             <colgroup>
@@ -155,7 +234,8 @@ export function ExcelViewer({ path }: { path: string }) {
                           key={c}
                           rowSpan={span?.rowSpan}
                           colSpan={span?.colSpan}
-                          className={`${cell?.t === 'n' || cell?.t === 'd' || typeof cell?.v === 'number' ? 'is-num' : ''} ${cell?.t === 'e' ? 'is-err' : ''} ${isSel ? 'is-sel' : ''}`}
+                          data-rc={key}
+                          className={`${cell?.t === 'n' || cell?.t === 'd' || typeof cell?.v === 'number' ? 'is-num' : ''} ${cell?.t === 'e' ? 'is-err' : ''} ${isSel ? 'is-sel' : ''} ${hitKeys.has(key) ? 'is-match' : ''}`}
                           onClick={() => setSelected({ r, c })}
                         >
                           {cellText(cell)}

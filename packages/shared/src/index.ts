@@ -257,3 +257,49 @@ export type ServerEvent =
   | { type: 'artifacts-changed' }
   | { type: 'usage'; usage: PlanUsage }
   | { type: 'pack'; pack: PackInfo };
+
+/**
+ * Vị trí cần tới khi mở file từ kết quả tìm kiếm: khung xem tìm `query` rồi nhảy tới lần khớp tương ứng.
+ * `occurrence` là thứ tự lần khớp trong phần chữ hiển thị của file (đếm từ 0).
+ */
+export interface FindTarget {
+  query: string;
+  occurrence?: number;
+  /** PDF: số trang (từ 1) và thứ tự chỗ khớp trong trang đó (từ 0). */
+  page?: number;
+  inPage?: number;
+  /** Excel: trang tính và ô ("B12"); CSV: hàng (từ 0). */
+  sheet?: string;
+  cell?: string;
+  row?: number;
+  /** Đổi mỗi lần bấm để khung xem nhảy lại kể cả khi cùng vị trí. */
+  nonce: number;
+}
+
+/** Một chỗ khớp trong nội dung file. */
+export interface ContentMatch {
+  /** "Trang 5", "Slide 3", "Trang tính1 · B12", "Dòng 40", "Đoạn 7". */
+  loc: string;
+  /** Đoạn trích quanh chỗ khớp; [start, end) là phần khớp trong đoạn trích. */
+  snippet: string;
+  start: number;
+  end: number;
+  target: Omit<FindTarget, 'query' | 'nonce'>;
+}
+
+export interface ContentSearchFile {
+  path: string;
+  kind: FileKind;
+  total: number;
+  matches: ContentMatch[];
+}
+
+export interface ContentSearchResponse {
+  files: ContentSearchFile[];
+  /** Số file đã đọc nội dung. */
+  scanned: number;
+  /** Đã dừng vì quá nhiều kết quả. */
+  truncated: boolean;
+  /** PDF không đọc được vì thiếu Python/PyMuPDF (chạy dev). */
+  pdfUnavailable?: boolean;
+}

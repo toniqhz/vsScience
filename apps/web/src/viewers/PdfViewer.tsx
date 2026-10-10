@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { FindTarget } from '@ide/shared';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { EventBus, PDFViewer } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import { api } from '../api/client';
 import { useWorkspace } from '../api/workspace';
+import { FindBar } from './find';
 import { PDFJS_ASSETS, loadPdfjs } from './pdfjs';
 
 type Status = { state: 'loading' } | { state: 'ready' } | { state: 'error'; message: string };
@@ -16,7 +18,7 @@ function errorMessage(err: unknown): string {
   return (err as Error)?.message || 'Không mở được file PDF.';
 }
 
-export function PdfViewer({ path }: { path: string }) {
+export function PdfViewer({ path, find: target }: { path: string; find?: FindTarget }) {
   const { onFileChange } = useWorkspace();
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<PDFViewer | null>(null);
@@ -32,6 +34,9 @@ export function PdfViewer({ path }: { path: string }) {
   const [query, setQuery] = useState('');
   const [matches, setMatches] = useState<{ current: number; total: number } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  /** Mở từ kết quả tìm kiếm: số lần còn phải sang chỗ khớp tiếp để tới đúng chỗ trong trang. */
+  const pendingStepsRef = useRef<{ query: string; steps: number } | null>(null);
 
   // Tải lại khi file thay đổi trên đĩa (giữ trang đang xem).
   useEffect(() => onFileChange(path, () => setReloadKey((k) => k + 1)), [path, onFileChange]);
@@ -78,9 +83,18 @@ export function PdfViewer({ path }: { path: string }) {
       eventBus.on('updatefindmatchescount', (e: { matchesCount: { current: number; total: number } }) =>
         setMatches(e.matchesCount),
       );
-      eventBus.on('updatefindcontrolstate', (e: { matchesCount: { current: number; total: number } }) =>
-        setMatches(e.matchesCount),
-      );
+      eventBus.on('updatefindcontrolstate', (e: { state: number; matchesCount: { current: number; total: number } }) => {
+        setMatches(e.matchesCount);
+        // Đã tới chỗ khớp đầu tiên của trang (0 = thấy, 2 = quay vòng): sang tiếp tới đúng chỗ khớp.
+        const pending = pendingStepsRef.current;
+        if (pending && (e.state === 0 || e.state === 2)) {
+          if (pending.steps <= 0) pendingStepsRef.current = null;
+          else {
+            pending.steps--;
+            window.setTimeout(() => eventBus.dispatch('find', { source: null, type: 'again', query: pending.query, caseSensitive: false, entireWord: false, highlightAll: true, findPrevious: false, matchDiacritics: false }), 0);
+          }
+        }
+      });
 
       const task = lib.getDocument({ data, ...PDFJS_ASSETS });
       destroyTask = () => task.destroy();
@@ -88,6 +102,7 @@ export function PdfViewer({ path }: { path: string }) {
       if (cancelled) return;
       viewer.setDocument(doc);
       linkService.setDocument(doc);
+      lastFindRef.current = '';
       setPageCount(doc.numPages);
       setStatus({ state: 'ready' });
     })().catch((err: unknown) => {
@@ -134,15 +149,14 @@ export function PdfViewer({ path }: { path: string }) {
     else setPageInput(String(page));
   };
 
-  const find = (again: boolean, previous = false) => {
-    if (!query.trim()) {
-      setMatches(null);
-      return;
-    }
+  /** Từ khóa của lần tìm mới gần nhất (tránh tìm lại khi từ khóa không đổi). */
+  const lastFindRef = useRef('');
+  const dispatchFind = (q: string, again: boolean, previous = false) => {
+    if (!again) lastFindRef.current = q;
     eventBusRef.current?.dispatch('find', {
       source: null,
       type: again ? 'again' : '',
-      query,
+      query: q,
       caseSensitive: false,
       entireWord: false,
       highlightAll: true,
@@ -151,12 +165,34 @@ export function PdfViewer({ path }: { path: string }) {
     });
   };
 
-  const onFindKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') find(!!matches, e.shiftKey);
-  };
+  // Tìm ngay khi gõ (đợi gõ xong một chút).
+  useEffect(() => {
+    if (status.state !== 'ready') return;
+    if (!query.trim()) {
+      setMatches(null);
+      dispatchFind('', false);
+      return;
+    }
+    if (query === lastFindRef.current) return;
+    const t = window.setTimeout(() => dispatchFind(query, false), 250);
+    return () => window.clearTimeout(t);
+  }, [query, status.state]);
+
+  // Mở từ kết quả tìm kiếm: tới trang có chỗ khớp rồi tìm từ trang đó.
+  useEffect(() => {
+    if (!target || status.state !== 'ready') return;
+    const v = viewerRef.current;
+    if (v && target.page) v.currentPageNumber = Math.min(target.page, v.pagesCount);
+    setQuery(target.query);
+    pendingStepsRef.current = target.inPage ? { query: target.query, steps: target.inPage } : null;
+    // Cùng từ khóa thì hiệu ứng tìm ở trên không chạy lại: tìm luôn từ trang mới.
+    window.setTimeout(() => dispatchFind(target.query, false), 0);
+  }, [target?.nonce, status.state]);
+
+  const step = (dir: 1 | -1) => query.trim() && dispatchFind(query, true, dir < 0);
 
   return (
-    <div className="pdf-viewer">
+    <div className="pdf-viewer" ref={rootRef}>
       <div className="viewer-toolbar">
         <span className="toolbar-group">
           Trang
@@ -186,20 +222,17 @@ export function PdfViewer({ path }: { path: string }) {
             <span className="codicon codicon-screen-full" />
           </button>
         </span>
-        <span className="toolbar-group toolbar-search">
-          <span className="codicon codicon-search" />
-          <input
-            className="search-input"
-            placeholder="Tìm trong tài liệu"
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setMatches(null);
-            }}
-            onKeyDown={onFindKey}
-          />
-          {matches && <span className="match-count">{matches.total ? `${matches.current}/${matches.total}` : 'Không thấy'}</span>}
-        </span>
+        <FindBar
+          rootRef={rootRef}
+          query={query}
+          onQuery={(q) => {
+            setQuery(q);
+            setMatches(null);
+          }}
+          count={query.trim() ? matches : null}
+          onStep={step}
+          placeholder="Tìm trong tài liệu"
+        />
       </div>
       <div className="pdf-scroll-host">
         <div ref={containerRef} className="pdf-container" />

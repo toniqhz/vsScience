@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import type { FindTarget } from '@ide/shared';
 import { api } from '../api/client';
 import { useWorkspace } from '../api/workspace';
+import { FindBar, useDomFind } from './find';
 import { OpenExternalButton } from './OpenExternalButton';
 
 type Status = { state: 'loading' } | { state: 'ready' } | { state: 'error'; message: string };
@@ -20,7 +22,7 @@ const PAGE_GUTTER = 32;
 const SCROLLBAR = 12;
 
 /** Xem file Word (.docx) bằng docx-preview: dựng trang giấy trong trình duyệt, chỉ đọc. */
-export function WordViewer({ path }: { path: string }) {
+export function WordViewer({ path, find }: { path: string; find?: FindTarget }) {
   const { onFileChange } = useWorkspace();
   const scrollRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -29,6 +31,9 @@ export function WordViewer({ path }: { path: string }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [scale, setScale] = useState(1);
   const [fitWidth, setFitWidth] = useState(true);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [rendered, setRendered] = useState(0);
+  const finder = useDomFind(bodyRef, rendered, find);
 
   // Tải lại khi file thay đổi trên đĩa (giữ vị trí cuộn).
   useEffect(() => onFileChange(path, () => setReloadKey((k) => k + 1)), [path, onFileChange]);
@@ -65,6 +70,7 @@ export function WordViewer({ path }: { path: string }) {
       styles.replaceChildren(...nextStyles.childNodes);
       body.replaceChildren(...nextBody.childNodes);
       setStatus({ state: 'ready' });
+      setRendered((n) => n + 1);
       if (scrollRef.current) scrollRef.current.scrollTop = scrollTop;
     })().catch((err: unknown) => {
       if (cancelled) return;
@@ -106,7 +112,7 @@ export function WordViewer({ path }: { path: string }) {
   };
 
   return (
-    <div className="pdf-viewer">
+    <div className="pdf-viewer" ref={rootRef}>
       <div className="viewer-toolbar">
         <span className="toolbar-group viewer-info">
           <span className="codicon codicon-file-text kind-word" />
@@ -124,9 +130,8 @@ export function WordViewer({ path }: { path: string }) {
             <span className="codicon codicon-screen-full" />
           </button>
         </span>
-        <span className="toolbar-group toolbar-search">
-          <OpenExternalButton path={path} app="Word" />
-        </span>
+        <FindBar rootRef={rootRef} query={finder.query} onQuery={finder.setQuery} count={finder.count} onStep={finder.step} />
+        <OpenExternalButton path={path} app="Word" />
       </div>
       <div className="pdf-scroll-host">
         <div ref={scrollRef} className="pdf-container word-container">

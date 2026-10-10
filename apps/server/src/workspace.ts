@@ -19,7 +19,7 @@ function isDir(p: string): boolean {
 }
 
 /** Kiểm tra và chuẩn hóa thư mục người dùng chọn để làm thư mục làm việc. */
-async function validateWorkspaceDir(dir: string): Promise<string> {
+export async function validateWorkspaceDir(dir: string): Promise<string> {
   if (!path.isAbsolute(dir)) throw new PathError('Cần đường dẫn đầy đủ tới thư mục', 400);
   let real: string;
   try {
