@@ -1,4 +1,5 @@
 import { memo, useMemo, useState, type ReactNode } from 'react';
+import { connectorDetail, connectorTitle } from './connectors';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { FileChange } from '@ide/shared';
@@ -411,8 +412,19 @@ function ToolItem({ item, running, onOpenFile }: { item: Extract<Item, { type: '
       return <ToolRow icon="codicon-sparkle" title="Dùng kỹ năng" detail={str(input.skill ?? input.command)} pending={pending} isError={isError}>{outputBody}</ToolRow>;
     case 'ExitPlanMode':
       return null;
-    default:
+    default: {
+      // Công cụ của connector (Consensus, Scite, Claude Docs…): tên dễ đọc kèm từ khóa/tham số chính.
+      const connector = connectorTitle(name);
+      if (connector) {
+        const detail = connectorDetail(input);
+        return (
+          <ToolRow icon="codicon-plug" title={connector} detail={detail ? `“${detail}”` : undefined} pending={pending} isError={isError}>
+            {outputBody}
+          </ToolRow>
+        );
+      }
       return <ToolRow icon="codicon-tools" title={name} pending={pending} isError={isError}>{outputBody}</ToolRow>;
+    }
   }
 }
 
@@ -448,7 +460,16 @@ function PermissionCard({
       </div>
     );
   } else {
-    title = <>Claude muốn dùng công cụ <strong>{toolName}</strong></>;
+    const connector = connectorTitle(toolName);
+    title = connector ? (
+      <>
+        Claude muốn dùng connector: <strong>{connector}</strong>
+      </>
+    ) : (
+      <>
+        Claude muốn dùng công cụ <strong>{toolName}</strong>
+      </>
+    );
     body = open ? <Pre>{JSON.stringify(input, null, 2)}</Pre> : null;
   }
   const canExpand = toolName !== 'ExitPlanMode' && (isFile ? !!fileChange : true);

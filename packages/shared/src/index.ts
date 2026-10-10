@@ -303,3 +303,16 @@ export interface ContentSearchResponse {
   /** PDF không đọc được vì thiếu Python/PyMuPDF (chạy dev). */
   pdfUnavailable?: boolean;
 }
+
+/** Một connector (máy chủ MCP) Claude dùng được: connector của tài khoản claude.ai hoặc cấu hình trên máy. */
+export interface ConnectorInfo {
+  /** Tên như trong cấu hình ("claude.ai Consensus"). */
+  key: string;
+  /** Tên hiển thị ("Consensus"). */
+  name: string;
+  status: 'connected' | 'failed' | 'needs-auth' | 'pending' | 'disabled';
+  /** claudeai (connector của tài khoản claude.ai), user, project, plugin… */
+  source?: string;
+  error?: string;
+  tools: { name: string; description?: string; readOnly: boolean }[];
+}

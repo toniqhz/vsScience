@@ -2,11 +2,25 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { McpServerStatus, Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent } from '@ide/shared';
-import { AgentSession, cleanAgentReport, sameDir, type AgentQuery, type QueryFn } from '../src/agent.js';
+import { AgentSession, cleanAgentReport, isTrustedReadOnlyMcpTool, sameDir, toConnectorInfo, type AgentQuery, type QueryFn } from '../src/agent.js';
 
 const CWD = '/tmp/ws-gia';
+
+const MCP_STATUSES: McpServerStatus[] = [
+  {
+    name: 'claude.ai Consensus',
+    status: 'connected',
+    source: 'claudeai',
+    tools: [
+      { name: 'search', description: 'Search papers', annotations: { readOnly: true } },
+      { name: 'save_search', annotations: { readOnly: false } },
+    ],
+  },
+  { name: 'claude.ai Scite', status: 'needs-auth', source: 'claudeai' },
+  { name: 'du-an', status: 'connected', source: 'project', tools: [{ name: 'search', annotations: { readOnly: true } }] },
+];
 const SETTINGS = { model: 'claude-opus-5-5', effort: 'medium' as const, mode: 'ask' as const };
 
 type Handler = (user: SDKUserMessage, options: Options) => AsyncGenerator<SDKMessage>;
@@ -34,6 +48,7 @@ function fakeQueryFn(handler: Handler) {
           { name: 'Free space', tokens: 988_000, kind: 'free' },
         ],
       }),
+      mcpServerStatus: async () => MCP_STATUSES,
       close: () => void (rec.closed = true),
     };
     return q;
@@ -443,5 +458,59 @@ describe('sameDir', () => {
     symlinkSync(real, link);
     expect(sameDir(link, real)).toBe(true);
     rmSync(base, { recursive: true, force: true });
+  });
+});
+
+describe('connector', () => {
+  it('liệt kê connector kèm trạng thái và công cụ chỉ đọc', () => {
+    expect(toConnectorInfo(MCP_STATUSES[0]!)).toEqual({
+      key: 'claude.ai Consensus',
+      name: 'Consensus',
+      status: 'connected',
+      source: 'claudeai',
+      tools: [
+        { name: 'search', description: 'Search papers', readOnly: true },
+        { name: 'save_search', readOnly: false },
+      ],
+    });
+  });
+
+  it('chỉ tự cho phép công cụ chỉ đọc của connector claude.ai / cấu hình riêng', () => {
+    const consensus = { name: 'claude.ai Consensus', source: 'claudeai' };
+    expect(isTrustedReadOnlyMcpTool('mcp__claude_ai_Consensus__search', consensus, MCP_STATUSES)).toBe(true);
+    expect(isTrustedReadOnlyMcpTool('mcp__claude_ai_Consensus__save_search', consensus, MCP_STATUSES)).toBe(false);
+    // Connector của thư mục (project) có thể do người khác cài sẵn: vẫn hỏi.
+    expect(isTrustedReadOnlyMcpTool('mcp__du-an__search', { name: 'du-an', source: 'project' }, MCP_STATUSES)).toBe(false);
+    expect(isTrustedReadOnlyMcpTool('mcp__claude_ai_Consensus__search', undefined, MCP_STATUSES)).toBe(false);
+  });
+
+  it('chế độ Hỏi trước: tìm bài báo trên Consensus không hỏi, lưu tìm kiếm thì hỏi', async () => {
+    const decisions: unknown[] = [];
+    const { session, events } = setup(async function* (_user, options) {
+      const opts = (server: string) => ({ signal: new AbortController().signal, suggestions: [], mcpServer: { name: server, source: 'claudeai' } }) as never;
+      decisions.push(await options.canUseTool!('mcp__claude_ai_Consensus__search', { query: 'PCR' }, opts('claude.ai Consensus')));
+      void options.canUseTool!('mcp__claude_ai_Consensus__save_search', { query: 'PCR' }, opts('claude.ai Consensus'));
+      yield m({ type: 'result', subtype: 'success', is_error: false, duration_ms: 1 });
+    });
+    await session.send('Tìm bài báo', [], SETTINGS);
+    await until(() => events.some((e) => e.kind === 'permission'));
+    expect(decisions[0]).toMatchObject({ behavior: 'allow' });
+    const perms = events.filter((e) => e.kind === 'permission');
+    expect(perms.map((p) => p.kind === 'permission' && p.toolName)).toEqual(['mcp__claude_ai_Consensus__save_search']);
+    await session.close();
+  });
+
+  it('chưa có phiên: mở tạm một phiên để hỏi connector rồi đóng, không gửi câu hỏi nào', async () => {
+    const { session, fake } = setup(async function* () {
+      throw new Error('không được gửi câu hỏi');
+    });
+    const list = await session.connectors();
+    expect(list.map((c) => [c.name, c.status])).toEqual([
+      ['Consensus', 'connected'],
+      ['Scite', 'needs-auth'],
+      ['du-an', 'connected'],
+    ]);
+    expect(fake.created).toHaveLength(1);
+    expect(fake.created[0]!.closed).toBe(true);
   });
 });

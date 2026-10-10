@@ -10,6 +10,7 @@ import {
   renameSession as sdkRenameSession,
   type CanUseTool,
   type EffortLevel,
+  type McpServerStatus,
   type Options,
   type PermissionMode,
   type PermissionResult,
@@ -19,7 +20,7 @@ import {
   type SDKUserMessage,
   type SessionMessage,
 } from '@anthropic-ai/claude-agent-sdk';
-import { ARTIFACT_FOLDER, type AgentBlock, type AgentEvent, type AgentMode, type AgentSessionInfo, type ContextUsage, type FileChange } from '@ide/shared';
+import { ARTIFACT_FOLDER, type AgentBlock, type AgentEvent, type AgentMode, type AgentSessionInfo, type ConnectorInfo, type ContextUsage, type FileChange } from '@ide/shared';
 import { cliEnv } from './claude-auth.js';
 import { FolderGuard, claudeScratchRoot } from './folderGuard.js';
 import type { ClaudeProfile } from './profile.js';
@@ -32,7 +33,50 @@ export interface AgentQuery extends AsyncIterable<SDKMessage> {
   setModel(model?: string): Promise<void>;
   setPermissionMode(mode: PermissionMode): Promise<void>;
   getContextUsage(): Promise<{ totalTokens: number; maxTokens: number; percentage: number; categories: { name: string; tokens: number; kind: string }[] }>;
+  mcpServerStatus?(): Promise<McpServerStatus[]>;
+  reconnectMcpServer?(serverName: string): Promise<void>;
   close(): void;
+}
+
+/** Nguồn connector đáng tin để tự cho phép công cụ chỉ đọc: tài khoản claude.ai và cấu hình riêng của người dùng. */
+const TRUSTED_MCP_SOURCES = new Set(['claudeai', 'user']);
+
+/** "claude.ai Consensus" → "Consensus". */
+export function connectorDisplayName(key: string): string {
+  return key.replace(/^claude\.ai\s+/i, '').trim() || key;
+}
+
+export function toConnectorInfo(s: McpServerStatus): ConnectorInfo {
+  return {
+    key: s.name,
+    name: connectorDisplayName(s.name),
+    status: s.status,
+    ...(s.source ?? s.scope ? { source: s.source ?? s.scope } : {}),
+    ...(s.error ? { error: s.error } : {}),
+    tools: (s.tools ?? []).map((t) => ({
+      name: t.name,
+      ...(t.description ? { description: t.description.slice(0, 300) } : {}),
+      readOnly: !!t.annotations?.readOnly && !t.annotations?.destructive,
+    })),
+  };
+}
+
+/**
+ * Công cụ connector `toolName` (mcp__<server>__<tool>) có phải loại chỉ đọc, từ connector đáng tin không.
+ * `server`: connector phục vụ công cụ (Agent SDK báo kèm khi xin quyền).
+ */
+export function isTrustedReadOnlyMcpTool(
+  toolName: string,
+  server: { name: string; source: string } | undefined,
+  statuses: McpServerStatus[],
+): boolean {
+  if (!toolName.startsWith('mcp__') || !server || !TRUSTED_MCP_SOURCES.has(server.source)) return false;
+  const status = statuses.find((s) => s.name === server.name);
+  // Tên công cụ đầy đủ = mcp__<tên server đã chuẩn hóa>__<tên công cụ>: so phần đuôi, lấy tên dài nhất khớp.
+  const tool = (status?.tools ?? [])
+    .filter((t) => toolName.endsWith(`__${t.name}`))
+    .sort((a, b) => b.name.length - a.name.length)[0];
+  return !!tool?.annotations?.readOnly && !tool.annotations.destructive;
 }
 
 export type QueryFn = (params: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => AgentQuery;
@@ -110,6 +154,7 @@ function systemAppend(cwd: string, scratch: string | null): string {
 - Khi trích dẫn tài liệu PDF, ghi rõ số trang.
 - Thư mục làm việc \`${cwd}\` chứa tài liệu PDF, Word, Excel của người dùng. Không để file tạm hay file rác trong đó; ${tmp}
 - Chỉ đọc, sửa, chạy lệnh với file trong thư mục làm việc và thư mục nháp. Nếu thật sự cần file ở ngoài, nói rõ với người dùng cần file nào và vì sao; người dùng sẽ được hỏi cho phép.
+- Tra cứu tài liệu khoa học (bài báo, bằng chứng cho một nhận định, tổng quan nghiên cứu, dữ liệu): nếu có công cụ connector khoa học (tên dạng mcp__claude_ai_…, ví dụ Consensus, Scite, Elicit, PubMed, Scholar Gateway, Synapse) thì ưu tiên dùng chúng trước tìm kiếm web thông thường. Mỗi ý lấy từ nguồn ngoài phải ghi trích dẫn (tác giả, năm, tên bài, tạp chí; kèm DOI hoặc link nếu có) và cuối câu trả lời có danh sách tài liệu tham khảo. Chỉ trích dẫn nguồn đã thật sự tìm thấy qua công cụ — không bịa tên bài, tác giả hay DOI; không tìm được thì nói rõ. Phân biệt nội dung lấy từ tài liệu trong thư mục của người dùng (ghi file và số trang) với nguồn bên ngoài. Connector báo cần đăng nhập/kết nối thì nhắc người dùng kết nối ở claude.ai → Settings → Connectors (hoặc mục Connector trong app).
 - Sản phẩm viết cho người dùng (bản tóm tắt, đề cương, ghi chú, báo cáo, bảng so sánh, câu hỏi ôn tập…): mặc định ghi thành file Markdown (.md) trong thư mục \`${path.join(cwd, ARTIFACT_FOLDER)}\` (tự tạo nếu chưa có), tên file tiếng Việt ngắn gọn nói rõ nội dung. App hiện các file này ở mục Artifact để người dùng mở lại. Chỉ khi cần hình ảnh, biểu đồ hay tương tác mới viết trang .html (cũng trong thư mục đó; thư viện vẽ biểu đồ nạp qua CDN được). Người dùng yêu cầu Word, Excel hay PDF thì làm đúng định dạng đó. Không đăng lên claude.ai (công cụ Artifact, Claude Docs) trừ khi người dùng yêu cầu rõ. Thư mục làm việc đã có cấu trúc project phân tích (reports/, figures/…) thì theo cấu trúc đó. Hỏi đáp ngắn thì trả lời ngay trong khung chat, không tạo file.
 - Kế hoạch theo bước: mỗi khi đưa ra hoặc thống nhất với người dùng một chuỗi bước họ sẽ đi theo dần qua nhiều lượt (hướng dẫn cài đặt, lộ trình đọc sách theo chương hay theo tuần, soạn đề theo từng phần…), luôn ghi các bước đó bằng TaskCreate, mỗi bước một lần gọi, trong cùng lượt trả lời (nếu TaskCreate/TaskUpdate chưa nạp thì nạp bằng ToolSearch với query "select:TaskCreate,TaskUpdate"). Đây là danh sách của người dùng chứ không chỉ việc của bạn: app ghim nó ở đầu khung chat để họ theo dõi trong hội thoại dài. Viết bằng tiếng Việt cho người dùng đọc:
   - subject: tên bước ngắn gọn.
@@ -482,6 +527,75 @@ export class AgentSession {
     }
   }
 
+  #mcpCache: { at: number; statuses: McpServerStatus[] } | null = null;
+  #probe: Promise<McpServerStatus[]> | null = null;
+
+  /** Trạng thái connector của phiên đang chạy (nhớ vài giây; lỗi thì coi như không có). */
+  async #mcpStatuses(maxAgeMs = 15_000): Promise<McpServerStatus[]> {
+    const q = this.#query;
+    if (this.#mcpCache && Date.now() - this.#mcpCache.at < maxAgeMs) return this.#mcpCache.statuses;
+    if (!q?.mcpServerStatus) return this.#mcpCache?.statuses ?? [];
+    try {
+      const statuses = await Promise.race([
+        q.mcpServerStatus(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+      ]);
+      this.#mcpCache = { at: Date.now(), statuses };
+      return statuses;
+    } catch {
+      return this.#mcpCache?.statuses ?? [];
+    }
+  }
+
+  /**
+   * Danh sách connector Claude dùng được. Chưa có phiên thì mở tạm một phiên không gửi câu hỏi nào
+   * (không tốn lượt dùng) để hỏi trạng thái rồi đóng lại.
+   */
+  async connectors(refresh = false): Promise<ConnectorInfo[]> {
+    if (refresh) this.#mcpCache = null;
+    if (this.#query) return (await this.#mcpStatuses(refresh ? 0 : 15_000)).map(toConnectorInfo);
+    if (!refresh && this.#mcpCache && Date.now() - this.#mcpCache.at < 60_000) return this.#mcpCache.statuses.map(toConnectorInfo);
+    this.#probe ??= this.#probeConnectors().finally(() => (this.#probe = null));
+    return (await this.#probe).map(toConnectorInfo);
+  }
+
+  async #probeConnectors(): Promise<McpServerStatus[]> {
+    const input = new InputQueue();
+    const q = (this.opts.queryFn ?? (sdkQuery as unknown as QueryFn))({
+      prompt: input,
+      options: {
+        cwd: this.opts.cwd(),
+        pathToClaudeCodeExecutable: this.opts.claudeBin,
+        env: cliEnv({ CLAUDE_AGENT_SDK_CLIENT_APP: 'vsscience/0.1' }),
+        settingSources: ['user', 'project', 'local'],
+        canUseTool: async () => ({ behavior: 'deny', message: 'Chỉ kiểm tra connector.' }),
+      },
+    });
+    try {
+      if (!q.mcpServerStatus) return [];
+      // Connector claude.ai kết nối dần: chờ tới khi hết "pending" (tối đa ~10 giây).
+      let statuses: McpServerStatus[] = [];
+      for (let i = 0; i < 10; i++) {
+        statuses = await q.mcpServerStatus();
+        if (!statuses.some((s) => s.status === 'pending')) break;
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      this.#mcpCache = { at: Date.now(), statuses };
+      return statuses;
+    } catch {
+      return [];
+    } finally {
+      input.end();
+      q.close();
+    }
+  }
+
+  /** Thử kết nối lại một connector (sau khi người dùng cấp quyền trên claude.ai). */
+  async reconnectConnector(key: string): Promise<ConnectorInfo[]> {
+    if (this.#query?.reconnectMcpServer) await this.#query.reconnectMcpServer(key).catch(() => {});
+    return this.connectors(true);
+  }
+
   /** Xóa hội thoại và kết thúc phiên (lượt sau bắt đầu phiên mới). */
   async clear() {
     await this.#stop();
@@ -599,8 +713,13 @@ export class AgentSession {
       [pythonHome(), path.dirname(this.opts.claudeBin), path.dirname(pdfTool)].filter((d): d is string => !!d && path.isAbsolute(d)),
     );
     const guard = new FolderGuard(() => roots, { extraAllowed });
-    const canUseTool: CanUseTool = (toolName, toolInput, { signal, suggestions }) =>
-      new Promise<PermissionResult>((resolve) => {
+    const canUseTool: CanUseTool = (toolName, toolInput, { signal, suggestions, mcpServer }) =>
+      new Promise<PermissionResult>(async (resolve) => {
+        // Connector (claude.ai hoặc cấu hình riêng): công cụ tự khai là chỉ đọc (tìm bài báo, tra cứu…) thì cho phép ở mọi chế độ.
+        if (toolName.startsWith('mcp__') && isTrustedReadOnlyMcpTool(toolName, mcpServer, await this.#mcpStatuses())) {
+          resolve({ behavior: 'allow', updatedInput: toolInput });
+          return;
+        }
         const outside = FolderGuard.touchesFiles(toolName) ? guard.outside(toolName, toolInput, cwd) : [];
         // Ghi kế hoạch không đụng tới file: luôn cho phép. Đọc file (Read/Grep/Glob, công cụ PDF của app)
         // trong thư mục làm việc và thư mục nháp: cho phép ở mọi chế độ.

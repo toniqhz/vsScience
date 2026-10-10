@@ -320,6 +320,15 @@ export async function buildApp(
   }));
   app.get('/api/agent/profile', async () => ({ profile: loadProfile(config.profileDir ?? null)?.info ?? null }));
   app.get('/api/agent/context', async () => ({ usage: await agent.contextUsage() }));
+  /** Connector (máy chủ MCP) Claude dùng được: của tài khoản claude.ai và cấu hình trên máy. */
+  app.get<{ Querystring: { refresh?: string } }>('/api/connectors', async (req) => ({
+    connectors: await agent.connectors(req.query.refresh === '1'),
+  }));
+  app.post<{ Body: { key: string } }>(
+    '/api/connectors/reconnect',
+    { schema: { body: { type: 'object', required: ['key'], properties: { key: { type: 'string', minLength: 1, maxLength: 200 } } } } },
+    async (req) => ({ connectors: await agent.reconnectConnector(req.body.key) }),
+  );
 
   const sessionIdSchema = { type: 'string', pattern: '^[A-Za-z0-9-]{1,100}$' } as const;
 

@@ -11,6 +11,7 @@ import { EditorArea, type ArtifactPanelParams, type DiffPanelParams, type FilePa
 import { baseName } from './fileTypes';
 import { ArtifactsView } from './sidebar/ArtifactsView';
 import { ChangesView } from './sidebar/ChangesView';
+import { ConnectorsView } from './sidebar/ConnectorsView';
 import { SearchView } from './sidebar/SearchView';
 import { SessionsView } from './sidebar/SessionsView';
 import { WorkbenchContext, type SnapshotRef } from './workbenchContext';
@@ -31,7 +32,7 @@ function countFiles(node: TreeNode | undefined): number {
   return (node.children ?? []).reduce((n, c) => n + countFiles(c), 0);
 }
 
-type SideView = 'files' | 'search' | 'changes' | 'sessions' | 'artifacts';
+type SideView = 'files' | 'search' | 'changes' | 'sessions' | 'artifacts' | 'connectors';
 
 const VIEWS: { id: SideView; icon: string; title: string }[] = [
   { id: 'files', icon: 'codicon-files', title: 'Thư mục' },
@@ -39,6 +40,7 @@ const VIEWS: { id: SideView; icon: string; title: string }[] = [
   { id: 'changes', icon: 'codicon-source-control', title: 'Thay đổi' },
   { id: 'sessions', icon: 'codicon-comment-discussion', title: 'Phiên Claude' },
   { id: 'artifacts', icon: 'codicon-preview', title: 'Artifact (trang Claude đã tạo)' },
+  { id: 'connectors', icon: 'codicon-plug', title: 'Connector (Consensus, Scite, Claude Docs…)' },
 ];
 
 function ActivityBar({
@@ -269,6 +271,9 @@ function Workbench() {
                 </div>
                 <div className="side-view" hidden={view !== 'artifacts'}>
                   {view === 'artifacts' && <ArtifactsView onOpen={openArtifact} />}
+                </div>
+                <div className="side-view" hidden={view !== 'connectors'}>
+                  {view === 'connectors' && <ConnectorsView />}
                 </div>
               </div>
             </Allotment.Pane>

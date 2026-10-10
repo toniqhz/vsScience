@@ -3576,3 +3576,102 @@ a.btn {
 .side-count.is-error {
   color: var(--danger);
 }
+
+/* Mục Connector */
+.connector-row {
+  padding-left: 8px;
+}
+
+.connector-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.connector-dot.is-ok {
+  background: #3fb950;
+}
+
+.connector-dot.is-warn {
+  background: #cca700;
+}
+
+.connector-dot.is-error {
+  background: var(--danger);
+}
+
+.connector-dot.is-pending {
+  background: var(--accent);
+}
+
+.connector-body {
+  padding: 2px 12px 8px 38px;
+  font-size: 12px;
+}
+
+.connector-meta {
+  margin: 4px 0;
+  color: var(--text-muted);
+}
+
+.connector-hint {
+  margin: 4px 0 6px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.connector-hint.is-error {
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+.connector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.connector-tool {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+  color: var(--text);
+}
+
+.connector-tool .codicon {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.connector-tool-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.connector-tag {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: rgba(63, 185, 80, 0.18);
+  color: #7ee787;
+  font-size: 10.5px;
+}
+
+.connector-footer {
+  padding: 12px 20px;
+}
+
+.connector-footer .btn,
+.connector-actions .btn {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}

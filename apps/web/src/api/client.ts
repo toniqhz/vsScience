@@ -1,5 +1,6 @@
 import type {
   AgentMode,
+  ConnectorInfo,
   ContentSearchResponse,
   ArtifactInfo,
   AgentSessionInfo,
@@ -91,6 +92,10 @@ export const api = {
     new Uint8Array(await (await request(`/api/file?path=${encodeURIComponent(path)}`)).arrayBuffer()),
   openWorkspace: async (path: string) =>
     (await request('/api/workspace', { path })).json() as Promise<WorkspaceInfo>,
+  connectors: async (refresh = false) =>
+    ((await (await request(`/api/connectors${refresh ? '?refresh=1' : ''}`)).json()) as { connectors: ConnectorInfo[] }).connectors,
+  reconnectConnector: async (key: string) =>
+    ((await (await request('/api/connectors/reconnect', { key })).json()) as { connectors: ConnectorInfo[] }).connectors,
   searchContent: async (q: string) =>
     (await request(`/api/search?q=${encodeURIComponent(q)}`)).json() as Promise<ContentSearchResponse>,
   revealPath: async (path: string) => (await request('/api/fs/reveal', { path })).json() as Promise<{ ok: true }>,
