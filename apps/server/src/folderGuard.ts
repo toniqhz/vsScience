@@ -38,6 +38,12 @@ export interface GuardOptions {
   home?: string;
   /** Kiểm tra đường dẫn có tồn tại (thay được khi test). */
   exists?: (p: string) => boolean;
+  /** Đọc nội dung file script (thay được khi test); null nếu quá lớn. */
+  readScript?: (p: string) => string | null;
+}
+
+function readScript(p: string): string | null {
+  return statSync(p).size <= MAX_SCRIPT_BYTES ? readFileSync(p, 'utf8') : null;
 }
 
 /** Đường dẫn trông như một đường dẫn duy nhất (có thể chứa dấu cách) thay vì một đoạn code. */
@@ -184,6 +190,9 @@ export class FolderGuard {
   /** Đường dẫn ngoài phạm vi trong một đoạn lệnh/script (kèm quét một tầng file script được gọi). */
   #scan(text: string, cwd: string, mode: ShellMode, out: Set<string>, depth: number) {
     for (const word of shellWords(text, mode)) {
+      // Trong nội dung script, "\n…", "\t", "\u00a0" là ký tự thoát của chuỗi chứ không phải đường dẫn
+      // tính từ gốc ổ đĩa (Windows).
+      if (depth > 0 && this.#win && /^\\(?!\\)/.test(word)) continue;
       const p = this.toPath(word, cwd) ?? (depth === 0 && SCRIPT_EXT.test(word) ? this.#p.resolve(cwd, word) : null);
       if (!p) continue;
       if (!this.#allowed(p)) {
@@ -191,12 +200,13 @@ export class FolderGuard {
         continue;
       }
       // Script nằm trong phạm vi: đọc nội dung để xem nó có đụng tới file bên ngoài không.
-      if (depth === 0 && SCRIPT_EXT.test(p) && !this.#system.some((s) => this.#isInside(p, s))) {
+      // (Bỏ qua script hệ thống và công cụ đi kèm app — code tin cậy.)
+      const trusted = [...this.#system, ...(this.opts.extraAllowed ?? [])];
+      if (depth === 0 && SCRIPT_EXT.test(p) && !trusted.some((s) => this.#isInside(p, s))) {
         try {
-          if (statSync(p).size <= MAX_SCRIPT_BYTES) {
-            // Nội dung script (Python, …) dùng chuỗi trong nháy như shell posix.
-            this.#scan(readFileSync(p, 'utf8'), this.#p.dirname(p), /\.ps1$/i.test(p) ? 'powershell' : 'posix', out, 1);
-          }
+          const text = (this.opts.readScript ?? readScript)(p);
+          // Nội dung script (Python, …) dùng chuỗi trong nháy như shell posix.
+          if (text !== null) this.#scan(text, this.#p.dirname(p), /\.ps1$/i.test(p) ? 'powershell' : 'posix', out, 1);
         } catch {
           // Script chưa tồn tại hoặc không đọc được — bỏ qua.
         }

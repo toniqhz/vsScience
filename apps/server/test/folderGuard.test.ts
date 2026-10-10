@@ -34,6 +34,21 @@ describe('FolderGuard', () => {
     expect(mac.outside('Bash', { command: 'ls /Users/a/Downloads' }, ws)).toEqual(['/Users/a/Downloads']);
   });
 
+  it('Windows: ký tự thoát trong script ("\\n", "\\t") không phải đường dẫn; không quét công cụ đi kèm app', () => {
+    const code = 'import re\nprint("\\nMục lục (cấp · tiêu đề · trang):")\nre.sub(r"[ \\t\\u00a0]+", " ", s)\nopen("C:\\\\Windows\\\\bí mật.txt")\n';
+    const read: string[] = [];
+    const win = new FolderGuard(() => ['C:\\Users\\a\\Bài'], {
+      platform: 'win32',
+      env: {},
+      extraAllowed: ['C:\\Program Files\\VsScience\\resources\\tools'],
+      readScript: (p) => (read.push(p), code),
+    });
+    const ws = 'C:\\Users\\a\\Bài';
+    expect(win.outside('PowerShell', { command: '& python "C:\\Program Files\\VsScience\\resources\\tools\\pdf.py" render a.pdf 5-8' }, ws)).toEqual([]);
+    expect(read).toEqual([]);
+    expect(win.outside('PowerShell', { command: 'python x.py' }, ws)).toEqual(['C:\\Windows\\bí mật.txt']);
+  });
+
   it('khóa PDF trong code Python ("/XObject", "/Width") không phải đường dẫn', () => {
     const code = `python3 -I -c "
 import pypdf
