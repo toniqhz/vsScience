@@ -294,7 +294,7 @@ export async function buildApp(
   // ---------- Trợ lý (Agent SDK) ----------
   const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
   app.post<{
-    Body: { text: string; files: string[]; model: string; effort: string | null; mode: 'ask' | 'auto' | 'plan' };
+    Body: { text: string; files: string[]; model: string; effort: string | null; mode: 'ask' | 'auto' | 'plan' | 'lazy' };
   }>(
     '/api/agent/message',
     {
@@ -307,7 +307,7 @@ export async function buildApp(
             files: { type: 'array', maxItems: 50, items: { type: 'string', maxLength: 4096 } },
             model: { type: 'string', pattern: '^claude-[a-z0-9-]+$', maxLength: 64 },
             effort: { anyOf: [{ type: 'string', enum: EFFORTS }, { type: 'null' }] },
-            mode: { type: 'string', enum: ['ask', 'auto', 'plan'] },
+            mode: { type: 'string', enum: ['ask', 'auto', 'plan', 'lazy'] },
           },
         },
       },

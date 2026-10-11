@@ -249,8 +249,10 @@ export function Composer(props: ComposerProps) {
     }
     if (e.key === 'Tab' && e.shiftKey) {
       e.preventDefault();
-      const i = MODES.findIndex((m) => m.id === mode);
-      props.onModeChange(MODES[(i + 1) % MODES.length]!.id);
+      // Shift+Tab xoay vòng các chế độ thường; "Lười biếng" chỉ chọn trong menu để không bật nhầm.
+      const cycle = MODES.filter((m) => m.id !== 'lazy');
+      const i = cycle.findIndex((m) => m.id === mode);
+      props.onModeChange(cycle[(i + 1) % cycle.length]!.id);
       return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {

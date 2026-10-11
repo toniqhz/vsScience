@@ -1,7 +1,7 @@
 {
   "name": "@ide/desktop",
   "productName": "VsScience",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "VsScience: làm việc với tài liệu PDF, Word, Excel cùng Claude",
   "private": true,
   "type": "module",

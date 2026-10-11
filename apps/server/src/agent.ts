@@ -26,6 +26,7 @@ import { z } from 'zod';
 import { ARTIFACT_FOLDER, type AgentBlock, type AgentEvent, type AgentMode, type AgentSessionInfo, type ConnectorInfo, type ContextUsage, type FileChange } from '@ide/shared';
 import { cliEnv } from './claude-auth.js';
 import { FolderGuard, claudeScratchRoot } from './folderGuard.js';
+import { lazyBlockReason, lazyDenyMessage } from './lazyGuard.js';
 import type { ClaudeProfile } from './profile.js';
 import { docToolsPrompt, parsePdfToolCommand, pdfToolPath, pdfToolPrompt, slidesToolPath, slidesToolPrompt } from './pdfTool.js';
 import { pythonHome, runtimeKey, runtimePrompt } from './runtime.js';
@@ -178,6 +179,8 @@ const MODE_TO_PERMISSION: Record<AgentMode, PermissionMode> = {
   ask: 'default',
   auto: 'acceptEdits',
   plan: 'plan',
+  // Sửa file trong thư mục: CLI tự nhận; mọi thứ khác app cho phép ngay trong canUseTool.
+  lazy: 'acceptEdits',
 };
 
 /** Hướng dẫn thêm vào system prompt của Claude Code cho người dùng không làm kỹ thuật. */
@@ -764,6 +767,14 @@ export class AgentSession {
     const guard = new FolderGuard(() => roots, { extraAllowed });
     const canUseTool: CanUseTool = (toolName, toolInput, { signal, suggestions, mcpServer }) =>
       new Promise<PermissionResult>(async (resolve) => {
+        // Chế độ "Lười biếng" (như auto của Claude Code): không hỏi gì, kể cả ngoài thư mục, nhưng luôn chặn
+        // xóa file ngoài thư mục, lệnh quản trị hệ thống và file mật khẩu/thông tin đăng nhập.
+        if (this.#applied?.mode === 'lazy') {
+          const outsideAll = FolderGuard.touchesFiles(toolName) ? guard.outside(toolName, toolInput, cwd) : [];
+          const blocked = lazyBlockReason(toolName, toolInput, outsideAll);
+          resolve(blocked ? { behavior: 'deny', message: lazyDenyMessage(blocked) } : { behavior: 'allow', updatedInput: toolInput });
+          return;
+        }
         // Công cụ riêng của app (tìm trong tài liệu): chỉ đọc, luôn cho phép.
         if (mcpServer?.source === 'sdk' && mcpServer.name === APP_MCP && toolName.startsWith(`mcp__${APP_MCP}__`)) {
           resolve({ behavior: 'allow', updatedInput: toolInput });

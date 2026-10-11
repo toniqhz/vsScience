@@ -29,7 +29,7 @@ function loadPrefs(): Prefs {
     const p = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '') as Partial<Prefs>;
     const model = findModel(p.model ?? '');
     const effort = p.effort && model.efforts.includes(p.effort) ? p.effort : model.defaultEffort;
-    const mode = p.mode === 'auto' || p.mode === 'plan' ? p.mode : 'ask';
+    const mode = p.mode === 'auto' || p.mode === 'plan' || p.mode === 'lazy' ? p.mode : 'ask';
     return { model: model.id, effort, mode };
   } catch {
     return { model: DEFAULT_MODEL.id, effort: DEFAULT_MODEL.defaultEffort, mode: 'ask' };

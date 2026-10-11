@@ -803,6 +803,10 @@ button.composer-chip:hover,
   color: #6cb6ff;
 }
 
+.mode-chip.mode-lazy .codicon {
+  color: #f48771;
+}
+
 .send-btn {
   width: 26px;
   height: 26px;

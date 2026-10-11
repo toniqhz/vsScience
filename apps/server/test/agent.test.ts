@@ -195,6 +195,26 @@ describe('AgentSession', () => {
     rmSync(scratchRoot, { recursive: true, force: true });
   });
 
+  it('chế độ Lười biếng: không hỏi gì (kể cả ngoài thư mục) nhưng vẫn chặn việc rủi ro cao', async () => {
+    const decisions: unknown[] = [];
+    const { session, events } = setup(async function* (_user, options) {
+      const opts = { signal: new AbortController().signal, suggestions: [] } as never;
+      decisions.push(await options.canUseTool!('Bash', { command: 'cat /etc/hosts ~/Desktop/bao-cao.docx' }, opts));
+      decisions.push(await options.canUseTool!('mcp__claude_ai_Consensus__save_search', { query: 'PCR' }, opts));
+      // Vẫn luôn chặn: xóa file ngoài thư mục, sudo, file thông tin đăng nhập.
+      decisions.push(await options.canUseTool!('Bash', { command: 'rm -rf ~/Documents/cu' }, opts));
+      decisions.push(await options.canUseTool!('Bash', { command: 'sudo apt-get install x' }, opts));
+      decisions.push(await options.canUseTool!('Read', { file_path: '/home/a/.ssh/id_rsa' }, opts));
+      yield m({ type: 'result', subtype: 'success', is_error: false, duration_ms: 1 });
+    });
+    await session.send('Làm hết đi', [], { ...SETTINGS, mode: 'lazy' });
+    await until(() => decisions.length === 5);
+    expect(decisions).toMatchObject([{ behavior: 'allow' }, { behavior: 'allow' }, { behavior: 'deny' }, { behavior: 'deny' }, { behavior: 'deny' }]);
+    expect((decisions[2] as { message: string }).message).toContain('Lười biếng');
+    expect(events.some((e) => e.kind === 'permission')).toBe(false);
+    await session.close();
+  });
+
   it('chế độ Hỏi trước: lệnh trong thư mục vẫn hỏi như cũ', async () => {
     const { session, events } = setup(async function* (_user, options) {
       await options.canUseTool!('Bash', { command: 'ls' }, { signal: new AbortController().signal, suggestions: [] } as never);

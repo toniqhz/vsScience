@@ -73,7 +73,8 @@ export type FsEventType = 'add' | 'addDir' | 'change' | 'unlink' | 'unlinkDir';
 
 // ---------- Trợ lý (Claude Agent SDK) ----------
 
-export type AgentMode = 'ask' | 'auto' | 'plan';
+/** lazy ("Lười biếng"): như auto của Claude Code — không hỏi gì, kể cả ngoài thư mục, nhưng vẫn chặn việc rủi ro cao. */
+export type AgentMode = 'ask' | 'auto' | 'plan' | 'lazy';
 
 /** Khối nội dung của câu trả lời, đã rút gọn từ Claude API. */
 export type AgentBlock =

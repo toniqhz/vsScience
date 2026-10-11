@@ -65,7 +65,7 @@ export function findModel(id: string): ModelInfo {
 }
 
 /** Chế độ quyền, giống Claude Code: hỏi trước khi sửa / tự sửa / chỉ lập kế hoạch. */
-export type PermissionMode = 'ask' | 'auto' | 'plan';
+export type PermissionMode = 'ask' | 'auto' | 'plan' | 'lazy';
 
 export const MODES: { id: PermissionMode; label: string; short: string; icon: string; description: string }[] = [
   {
@@ -88,6 +88,14 @@ export const MODES: { id: PermissionMode; label: string; short: string; icon: st
     short: 'Kế hoạch',
     icon: 'codicon-list-unordered',
     description: 'Claude chỉ đọc và đề xuất kế hoạch, không sửa file.',
+  },
+  {
+    id: 'lazy',
+    label: 'Lười biếng — không hỏi gì',
+    short: 'Lười biếng',
+    icon: 'codicon-coffee',
+    description:
+      'Như Tự động nhưng không hỏi gì, kể cả khi đụng tới file ngoài thư mục, cài thư viện hay dùng connector. Vẫn luôn chặn: xóa file ngoài thư mục, lệnh quyền quản trị, file mật khẩu và thông tin đăng nhập.',
   },
 ];
 
