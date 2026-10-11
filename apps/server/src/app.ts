@@ -5,7 +5,7 @@ import path from 'node:path';
 import Fastify, { type FastifyRequest } from 'fastify';
 import websocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
-import type { ServerEvent } from '@ide/shared';
+import type { ServerEvent, UpdateInfo } from '@ide/shared';
 import { AgentSession, type QueryFn, type SessionApi } from './agent.js';
 import { ArtifactStore, artifactTitle, artifactUrl, artifactsFromMessages, isDocsTool, linkTitle } from './artifacts.js';
 import { ClaudeAuth } from './claude-auth.js';
@@ -64,6 +64,14 @@ export async function buildApp(
     trashItem?: (absPath: string) => Promise<void>;
     /** Đọc chữ PDF cho ô tìm kiếm (test truyền bản giả thay cho Python). */
     readPdf?: (files: string[]) => Promise<Map<string, string[] | null>>;
+    /** App desktop: kiểm tra và cài bản mới. */
+    updater?: {
+      status(): UpdateInfo;
+      check(): Promise<UpdateInfo>;
+      install(): void;
+      /** Báo khi trạng thái đổi; trả về hàm hủy đăng ký. */
+      subscribe(fn: (u: UpdateInfo) => void): () => void;
+    };
   } = {},
 ) {
   const app = Fastify({ logger: opts.logger ?? false });
@@ -354,6 +362,22 @@ export async function buildApp(
   app.get<{ Querystring: { refresh?: string } }>('/api/usage', async (req) => ({
     usage: await planUsage.get(req.query.refresh === '1'),
   }));
+  /** Cập nhật app (chỉ app desktop). */
+  const updater = opts.updater;
+  if (updater) {
+    const unsubscribe = updater.subscribe((update) => broadcast({ type: 'update', update }));
+    app.addHook('onClose', async () => unsubscribe());
+  }
+  app.get('/api/update', async (_req, reply) => (updater ? updater.status() : reply.code(404).send({ error: 'Chỉ app desktop mới cập nhật được' })));
+  app.post('/api/update/check', async (_req, reply) => (updater ? updater.check() : reply.code(404).send({ error: 'Chỉ app desktop mới cập nhật được' })));
+  app.post('/api/update/install', async (_req, reply) => {
+    if (!updater) return reply.code(404).send({ error: 'Chỉ app desktop mới cập nhật được' });
+    if (!updater.status().canInstall) return reply.code(409).send({ error: 'Chưa có bản cập nhật đã tải xong' });
+    // Trả lời trước rồi mới thoát app để cài.
+    setTimeout(() => updater.install(), 300);
+    return { ok: true };
+  });
+
   app.get('/api/agent/profile', async () => ({ profile: loadProfile(config.profileDir ?? null)?.info ?? null }));
   app.get('/api/agent/context', async () => ({ usage: await agent.contextUsage() }));
   /** Connector (máy chủ MCP) Claude dùng được: của tài khoản claude.ai và cấu hình trên máy. */

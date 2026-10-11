@@ -9,6 +9,7 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { BrowserWindow, Menu, app, dialog, shell } from 'electron';
+import { Updater } from './updater.js';
 
 const isPackaged = app.isPackaged;
 /** Tài nguyên đi kèm: trong bản đóng gói là thư mục resources; khi chạy thử từ repo là build/. */
@@ -41,6 +42,7 @@ async function startServer(opts: { workspace?: string; openWindow?: (dir: string
   if (opts.workspace) config.initialWorkspace = opts.workspace;
   const { app: server, workspace } = await buildApp(config, {
     openWindow: opts.openWindow,
+    updater,
     // Xóa từ menu chuột phải: vào Thùng rác (Recycle Bin / Trash) để lấy lại được.
     trashItem: (abs) => shell.trashItem(abs),
     reveal: async (abs, isDir) => {
@@ -134,6 +136,9 @@ async function smokeTest(outFile: string) {
   writeFileSync(outFile, JSON.stringify(result, null, 2));
   app.exit(result.ok ? 0 : 1);
 }
+
+/** Cập nhật app: một bộ dùng chung cho mọi cửa sổ (tạo khi app sẵn sàng, không tạo khi chạy kiểm tra). */
+let updater: Updater | undefined;
 
 /** Mỗi cửa sổ có server riêng (cổng riêng): thư mục làm việc và phiên Claude độc lập với nhau. */
 const windows = new Map<BrowserWindow, { root: () => string; close: () => Promise<void> }>();
@@ -243,6 +248,8 @@ if (smokeArg) {
         ]);
       }
     }
+    updater = new Updater();
+    updater.start();
     try {
       await createWindow();
     } catch (err) {

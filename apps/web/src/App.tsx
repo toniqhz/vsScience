@@ -13,6 +13,8 @@ import { ArtifactsView } from './sidebar/ArtifactsView';
 import { ChangesView } from './sidebar/ChangesView';
 import { ConnectorsView } from './sidebar/ConnectorsView';
 import { FolderContextDialog } from './explorer/FolderContextDialog';
+import { ContextMenu } from './ContextMenu';
+import { UpdateDialog, updateSummary } from './UpdateDialog';
 import { SearchView } from './sidebar/SearchView';
 import { SessionsView } from './sidebar/SessionsView';
 import { WorkbenchContext, type SnapshotRef } from './workbenchContext';
@@ -49,13 +51,17 @@ function ActivityBar({
   sideOpen,
   onSelect,
   changeCount,
-  onContext,
+  onSettings,
+  updateReady,
 }: {
   view: SideView;
   sideOpen: boolean;
   onSelect: (v: SideView) => void;
   changeCount: number;
-  onContext: () => void;
+  /** Bấm nút cài đặt: mở menu tại vị trí nút. */
+  onSettings: (anchor: DOMRect) => void;
+  /** Có bản cập nhật đã tải xong / có bản mới: chấm báo trên nút cài đặt. */
+  updateReady: boolean;
 }) {
   return (
     <nav className="activity-bar">
@@ -71,8 +77,9 @@ function ActivityBar({
         </button>
       ))}
       <div className="activity-spacer" />
-      <button className="activity-item" title="Bối cảnh thư mục (chủ đề, người đọc, chuẩn trích dẫn…)" onClick={onContext}>
+      <button className="activity-item" title="Cài đặt" onClick={(e) => onSettings(e.currentTarget.getBoundingClientRect())}>
         <span className="codicon codicon-settings-gear" />
+        {updateReady && <span className="activity-dot" title="Có bản cập nhật" />}
       </button>
     </nav>
   );
@@ -83,13 +90,16 @@ function StatusBar({
   filesOpen,
   hasFiles,
   onToggleFiles,
+  onUpdate,
 }: {
   activePath: string | null;
   filesOpen: boolean;
   hasFiles: boolean;
   onToggleFiles: () => void;
+  onUpdate: () => void;
 }) {
-  const { connected, tree } = useWorkspace();
+  const { connected, tree, update } = useWorkspace();
+  const showUpdate = update?.state === 'ready' || update?.state === 'available' || update?.state === 'downloading';
   const fileCount = useMemo(() => countFiles(tree?.root), [tree]);
   return (
     <footer className={`status-bar ${connected ? '' : 'is-offline'}`}>
@@ -99,6 +109,16 @@ function StatusBar({
       </span>
       <span className="status-item">{fileCount} file</span>
       <span className="status-spacer" />
+      {showUpdate && (
+        <button className="status-item status-btn status-update" title={updateSummary(update)} onClick={onUpdate}>
+          <span className={`codicon ${update.state === 'downloading' ? 'codicon-sync codicon-modifier-spin' : 'codicon-cloud-download'}`} />
+          {update.state === 'ready'
+            ? `Bản ${update.latest} sẵn sàng — khởi động lại`
+            : update.state === 'available'
+              ? `Có bản ${update.latest}`
+              : `Đang tải bản ${update.latest ?? ''} ${update.progress ?? 0}%`}
+        </button>
+      )}
       {activePath && <span className="status-item">{activePath}</span>}
       {hasFiles && (
         <button className="status-item status-btn" title={filesOpen ? 'Ẩn khung xem file' : 'Hiện khung xem file'} onClick={onToggleFiles}>
@@ -138,12 +158,14 @@ function useChanges() {
 function Workbench() {
   const [view, setView] = useState<SideView>('files');
   const [contextOpen, setContextOpen] = useState(false);
+  const [updateOpen, setUpdateOpen] = useState(false);
+  const [settingsMenu, setSettingsMenu] = useState<{ x: number; y: number } | null>(null);
   const [sideOpen, setSideOpen] = useState(true);
   const [filesOpen, setFilesOpen] = useState(false);
   const [panelCount, setPanelCount] = useState(0);
   const [activePath, setActivePath] = useState<string | null>(null);
   const dockRef = useRef<DockviewApi | null>(null);
-  const { info, tree } = useWorkspace();
+  const { info, tree, update } = useWorkspace();
   const changes = useChanges();
 
   // Đổi thư mục làm việc: đóng các tab của thư mục cũ.
@@ -261,7 +283,8 @@ function Workbench() {
             sideOpen={sideOpen}
             onSelect={selectView}
             changeCount={changes.data?.files.length ?? 0}
-            onContext={() => setContextOpen(true)}
+            onSettings={(r) => setSettingsMenu({ x: r.right + 4, y: r.bottom })}
+            updateReady={update?.state === 'ready' || update?.state === 'available'}
           />
           <Allotment proportionalLayout={false}>
             <Allotment.Pane preferredSize={260} minSize={180} maxSize={480} visible={sideOpen} snap>
@@ -295,9 +318,27 @@ function Workbench() {
             </Allotment.Pane>
           </Allotment>
         </div>
-        <StatusBar activePath={activePath} filesOpen={filesOpen} hasFiles={hasFiles} onToggleFiles={() => setFilesOpen((o) => !o)} />
+        <StatusBar activePath={activePath} filesOpen={filesOpen} hasFiles={hasFiles} onToggleFiles={() => setFilesOpen((o) => !o)} onUpdate={() => setUpdateOpen(true)} />
       </div>
       {contextOpen && <FolderContextDialog onClose={() => setContextOpen(false)} />}
+      {updateOpen && <UpdateDialog onClose={() => setUpdateOpen(false)} />}
+      {settingsMenu && (
+        <ContextMenu
+          x={settingsMenu.x}
+          y={settingsMenu.y}
+          onClose={() => setSettingsMenu(null)}
+          items={[
+            { label: 'Bối cảnh thư mục…', icon: 'codicon-note', onClick: () => setContextOpen(true) },
+            'separator',
+            {
+              label: update?.state === 'ready' ? `Cài bản ${update.latest}` : update?.state === 'available' ? `Có bản mới ${update.latest}` : 'Kiểm tra cập nhật',
+              icon: update?.state === 'ready' || update?.state === 'available' ? 'codicon-cloud-download' : 'codicon-sync',
+              hint: update ? `bản ${update.current}` : undefined,
+              onClick: () => setUpdateOpen(true),
+            },
+          ]}
+        />
+      )}
     </WorkbenchContext.Provider>
   );
 }

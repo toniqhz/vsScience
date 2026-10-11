@@ -30,9 +30,11 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: VsScience-${{ matrix.target }}
-          # Chỉ bộ cài (.exe / .dmg); không kèm thư mục chạy thẳng hay blockmap.
+          # Bộ cài (.exe / .dmg), kèm latest.yml + blockmap của Windows để app tự cập nhật (tải phần thay đổi).
           path: |
             apps/desktop/release/*.exe
+            apps/desktop/release/*.exe.blockmap
+            apps/desktop/release/latest.yml
             apps/desktop/release/*.dmg
           if-no-files-found: error
 
@@ -68,7 +70,7 @@ jobs:
           Cần tài khoản Claude (Pro hoặc Max) để trò chuyện với Claude.
           NOTES
           sed -i 's/^          //' notes.md
-          gh release create "$GITHUB_REF_NAME" dist/*.exe dist/*.dmg \
+          gh release create "$GITHUB_REF_NAME" dist/*.exe dist/*.exe.blockmap dist/latest.yml dist/*.dmg \
             --repo "$GITHUB_REPOSITORY" \
             --title "VsScience ${GITHUB_REF_NAME#v}" \
             --notes-file notes.md

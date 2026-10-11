@@ -43,3 +43,10 @@ mac:
   hardenedRuntime: false
 dmg:
   title: VsScience
+# Cập nhật từ GitHub Releases: electron-builder tạo latest.yml + blockmap (Windows tự cập nhật bằng electron-updater)
+# và app-update.yml trong tài nguyên app. Bộ cài không tự đăng (dist.mjs chạy với --publish never; workflow tự đưa lên).
+publish:
+  provider: github
+  owner: toniqhz
+  repo: vsScience
+  releaseType: release

@@ -1,5 +1,6 @@
 import type {
   AgentMode,
+  UpdateInfo,
   FolderContext,
   ConnectorInfo,
   ContentSearchResponse,
@@ -99,6 +100,10 @@ export const api = {
     ((await (await request('/api/connectors/reconnect', { key })).json()) as { connectors: ConnectorInfo[] }).connectors,
   folderContext: async () => (await request('/api/workspace/context')).json() as Promise<FolderContext>,
   saveFolderContext: async (ctx: FolderContext) => (await request('/api/workspace/context', ctx)).json() as Promise<FolderContext>,
+  /** Trạng thái cập nhật app (404 khi không phải app desktop). */
+  updateStatus: async () => (await request('/api/update')).json() as Promise<UpdateInfo>,
+  checkUpdate: async () => (await request('/api/update/check', {})).json() as Promise<UpdateInfo>,
+  installUpdate: async () => void (await request('/api/update/install', {})),
   searchContent: async (q: string) =>
     (await request(`/api/search?q=${encodeURIComponent(q)}`)).json() as Promise<ContentSearchResponse>,
   revealPath: async (path: string) => (await request('/api/fs/reveal', { path })).json() as Promise<{ ok: true }>,

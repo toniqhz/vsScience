@@ -257,7 +257,26 @@ export type ServerEvent =
   | { type: 'changes-changed' }
   | { type: 'artifacts-changed' }
   | { type: 'usage'; usage: PlanUsage }
-  | { type: 'pack'; pack: PackInfo };
+  | { type: 'pack'; pack: PackInfo }
+  | { type: 'update'; update: UpdateInfo };
+
+/**
+ * Cập nhật app desktop. Windows: tải ngầm rồi cài khi khởi động lại (canInstall). Mac (chưa ký Apple Developer ID):
+ * chỉ báo có bản mới kèm link tải bộ cài (downloadUrl).
+ */
+export interface UpdateInfo {
+  state: 'idle' | 'checking' | 'none' | 'available' | 'downloading' | 'ready' | 'error' | 'unsupported';
+  current: string;
+  latest?: string;
+  /** Phần trăm đã tải (Windows). */
+  progress?: number;
+  /** Cài được ngay bằng cách khởi động lại app. */
+  canInstall: boolean;
+  /** Link tải bộ cài (Mac, hoặc khi không tự cập nhật được). */
+  downloadUrl?: string;
+  error?: string;
+  checkedAt?: number;
+}
 
 /**
  * Vị trí cần tới khi mở file từ kết quả tìm kiếm: khung xem tìm `query` rồi nhảy tới lần khớp tương ứng.

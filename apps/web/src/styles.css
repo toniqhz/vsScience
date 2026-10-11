@@ -3841,3 +3841,47 @@ a.btn {
   font: inherit;
   resize: vertical;
 }
+
+/* Cập nhật app */
+.activity-item {
+  position: relative;
+}
+
+.activity-dot {
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3fb950;
+  box-shadow: 0 0 0 2px var(--bg-activity, #181818);
+}
+
+.status-update {
+  gap: 4px;
+  font-weight: 600;
+}
+
+.update-dialog .update-icon {
+  color: var(--accent);
+}
+
+.update-progress {
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: var(--bg-input);
+  overflow: hidden;
+}
+
+.update-progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+
+.update-note {
+  margin-top: 6px;
+}

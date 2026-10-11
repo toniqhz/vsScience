@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { AgentEvent, PackInfo, PlanUsage, TreeResponse, WorkspaceInfo } from '@ide/shared';
+import type { AgentEvent, PackInfo, PlanUsage, TreeResponse, UpdateInfo, WorkspaceInfo } from '@ide/shared';
 import { api, connectEvents } from './client';
 
 type FileListener = () => void;
@@ -26,6 +26,8 @@ interface WorkspaceState {
   refreshUsage: (force?: boolean) => void;
   /** Gói tùy chọn (null khi chưa tải danh sách); rỗng khi chạy dev. */
   packs: PackInfo[] | null;
+  /** Cập nhật app desktop; null trong trình duyệt / bản chạy thử. */
+  update: UpdateInfo | null;
 }
 
 const WorkspaceContext = createContext<WorkspaceState | null>(null);
@@ -40,8 +42,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [changesRev, setChangesRev] = useState(0);
   const [planUsage, setPlanUsage] = useState<PlanUsage | null>(null);
   const [packs, setPacks] = useState<PackInfo[] | null>(null);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
   useEffect(() => {
     api.packs().then(setPacks, () => setPacks([]));
+    api.updateStatus().then(setUpdate, () => setUpdate(null));
   }, []);
   const refreshUsage = useMemo(
     () => (force = false) => {
@@ -96,6 +100,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         if (event.type === 'pack') {
           const pack = event.pack;
           setPacks((list) => (list ?? []).map((p) => (p.id === pack.id ? pack : p)).concat(list?.some((p) => p.id === pack.id) ? [] : [pack]));
+          return;
+        }
+        if (event.type === 'update') {
+          setUpdate(event.update);
           return;
         }
         if (event.type === 'usage') {
@@ -171,8 +179,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       planUsage,
       refreshUsage,
       packs,
+      update,
     }),
-    [info, tree, error, connected, sessionsRev, artifactsRev, changesRev, loadTree, planUsage, refreshUsage, packs],
+    [info, tree, error, connected, sessionsRev, artifactsRev, changesRev, loadTree, planUsage, refreshUsage, packs, update],
   );
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
