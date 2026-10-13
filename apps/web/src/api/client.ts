@@ -104,11 +104,17 @@ export const api = {
   updateStatus: async () => (await request('/api/update')).json() as Promise<UpdateInfo>,
   checkUpdate: async () => (await request('/api/update/check', {})).json() as Promise<UpdateInfo>,
   installUpdate: async () => void (await request('/api/update/install', {})),
+  /** Thông báo khi Claude xong việc / hỏi lại / cần cho phép (chỉ app desktop hỗ trợ). */
+  notifications: async () => (await request('/api/notifications')).json() as Promise<{ supported: boolean; enabled: boolean }>,
+  setNotifications: async (enabled: boolean) =>
+    (await request('/api/notifications', { enabled })).json() as Promise<{ supported: boolean; enabled: boolean }>,
   searchContent: async (q: string) =>
     (await request(`/api/search?q=${encodeURIComponent(q)}`)).json() as Promise<ContentSearchResponse>,
   revealPath: async (path: string) => (await request('/api/fs/reveal', { path })).json() as Promise<{ ok: true }>,
   deletePath: async (path: string) =>
     (await request('/api/fs/delete', { path })).json() as Promise<{ ok: true; trashed: boolean }>,
+  /** App desktop: chọn thư mục (hộp thoại của máy) rồi mở trong cửa sổ mới. */
+  newWindow: async () => (await request('/api/window/new', {})).json() as Promise<{ opened: boolean }>,
   openWindow: async (path: string) => (await request('/api/window', { path })).json() as Promise<{ ok: true }>,
   listDirs: async (path?: string) =>
     (await request(`/api/fs/dirs${path ? `?path=${encodeURIComponent(path)}` : ''}`)).json() as Promise<DirListing>,

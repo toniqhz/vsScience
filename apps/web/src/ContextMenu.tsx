@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 
 export type ContextMenuItem =
-  | { label: string; icon: string; danger?: boolean; hint?: string; onClick: () => void }
+  /** `checked`: mục bật/tắt, hiện công tắc và giữ menu mở khi bấm. */
+  | { label: string; icon: string; danger?: boolean; hint?: string; checked?: boolean; onClick: () => void }
   | 'separator';
 
 /**
@@ -67,16 +68,18 @@ export function ContextMenu({
         ) : (
           <button
             key={i}
-            role="menuitem"
+            role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+            aria-checked={item.checked}
             className={`context-menu-item ${item.danger ? 'is-danger' : ''}`}
             onClick={() => {
-              onClose();
+              if (item.checked === undefined) onClose();
               item.onClick();
             }}
           >
             <span className={`codicon ${item.icon}`} />
             <span className="context-menu-label">{item.label}</span>
             {item.hint && <span className="context-menu-hint">{item.hint}</span>}
+            {item.checked !== undefined && <span className={`menu-switch ${item.checked ? 'is-on' : ''}`} aria-hidden="true" />}
           </button>
         ),
       )}

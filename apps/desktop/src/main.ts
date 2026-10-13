@@ -9,6 +9,7 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { BrowserWindow, Menu, app, dialog, shell } from 'electron';
+import { notifierFor } from './notifications.js';
 import { Updater } from './updater.js';
 
 const isPackaged = app.isPackaged;
@@ -33,7 +34,14 @@ function configureEnv() {
   process.env.IDE_PORT ??= '0';
 }
 
-async function startServer(opts: { workspace?: string; openWindow?: (dir: string) => Promise<void> } = {}) {
+async function startServer(
+  opts: {
+    workspace?: string;
+    openWindow?: (dir: string) => Promise<void>;
+    newWindow?: () => Promise<boolean>;
+    notifier?: ReturnType<typeof notifierFor>;
+  } = {},
+) {
   configureEnv();
   // Nạp sau khi đặt biến môi trường vì config đọc chúng lúc khởi tạo.
   const { loadConfig } = await import('../../server/src/config.js');
@@ -42,7 +50,9 @@ async function startServer(opts: { workspace?: string; openWindow?: (dir: string
   if (opts.workspace) config.initialWorkspace = opts.workspace;
   const { app: server, workspace } = await buildApp(config, {
     openWindow: opts.openWindow,
+    newWindow: opts.newWindow,
     updater,
+    notifier: opts.notifier,
     // Xóa từ menu chuột phải: vào Thùng rác (Recycle Bin / Trash) để lấy lại được.
     trashItem: (abs) => shell.trashItem(abs),
     reveal: async (abs, isDir) => {
@@ -144,7 +154,14 @@ let updater: Updater | undefined;
 const windows = new Map<BrowserWindow, { root: () => string; close: () => Promise<void> }>();
 
 async function createWindow(dir?: string) {
-  const { url, server, workspace } = await startServer({ workspace: dir, openWindow });
+  // Server tạo trước cửa sổ: thông báo tìm cửa sổ qua biến này.
+  let ownWin: BrowserWindow | undefined;
+  const { url, server, workspace } = await startServer({
+    workspace: dir,
+    openWindow,
+    newWindow: () => newWindow(ownWin),
+    notifier: notifierFor(() => ownWin),
+  });
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -155,7 +172,9 @@ async function createWindow(dir?: string) {
     autoHideMenuBar: true,
     webPreferences: { contextIsolation: true, sandbox: true },
   });
+  ownWin = win;
   windows.set(win, { root: () => workspace.root, close: () => server.close() });
+  win.on('focus', () => win.flashFrame(false));
   win.on('closed', () => {
     void windows.get(win)?.close();
     windows.delete(win);
@@ -172,9 +191,9 @@ async function createWindow(dir?: string) {
       if (/^https?:\/\//.test(target)) void shell.openExternal(target);
     }
   });
-  // Ctrl+Shift+N (⌘⇧N trên Mac): cửa sổ mới.
+  // Ctrl+Shift+N: cửa sổ mới. Trên Mac phím ⌘⇧N nằm trong menu File của thanh menu.
   win.webContents.on('before-input-event', (event, input) => {
-    if (input.type === 'keyDown' && input.shift && (input.control || input.meta) && input.key.toLowerCase() === 'n') {
+    if (process.platform !== 'darwin' && input.type === 'keyDown' && input.shift && (input.control || input.meta) && input.key.toLowerCase() === 'n') {
       event.preventDefault();
       void newWindow(win);
     }
@@ -203,7 +222,10 @@ async function newWindow(parent?: BrowserWindow) {
     buttonLabel: 'Mở',
     properties: ['openDirectory', 'createDirectory'],
   };
-  const picked = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+  // Mac: gọi từ Dock/menu khi app chưa ở trước thì hộp chọn thư mục có thể nằm dưới cửa sổ khác.
+  if (process.platform === 'darwin') app.focus({ steal: true });
+  const owner = parent && !parent.isDestroyed() ? parent : undefined;
+  const picked = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options);
   if (picked.canceled || !picked.filePaths[0]) return false;
   try {
     await openWindow(picked.filePaths[0]);
@@ -211,6 +233,28 @@ async function newWindow(parent?: BrowserWindow) {
     dialog.showErrorBox('Không mở được thư mục', String((err as Error)?.message ?? err));
   }
   return true;
+}
+
+/** Thanh menu trên Mac: có File → Cửa sổ mới… (⌘⇧N); giữ các menu chuẩn để ⌘C/⌘V, ⌘Q, ⌘M… vẫn chạy. */
+function macMenu() {
+  return Menu.buildFromTemplate([
+    { role: 'appMenu' },
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'Cửa sổ mới…',
+          accelerator: 'CmdOrCtrl+Shift+N',
+          click: (_item, win) => void newWindow(win instanceof BrowserWindow ? win : undefined),
+        },
+        { type: 'separator' },
+        { role: 'close', label: 'Đóng cửa sổ' },
+      ],
+    },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' },
+  ]);
 }
 
 function focusAny() {
@@ -236,9 +280,12 @@ if (smokeArg) {
     focusAny();
     await newWindow();
   });
+  // Windows: thông báo hiện đúng tên và biểu tượng app (trùng appId của bộ cài).
+  if (process.platform === 'win32') app.setAppUserModelId('io.github.toniqhz.vsscience');
   app.whenReady().then(async () => {
     if (process.platform === 'darwin') {
       app.dock?.setMenu(Menu.buildFromTemplate([{ label: 'Cửa sổ mới…', click: () => void newWindow() }]));
+      Menu.setApplicationMenu(macMenu());
     } else {
       Menu.setApplicationMenu(null);
       // Danh sách tác vụ khi bấm chuột phải biểu tượng trên taskbar Windows.

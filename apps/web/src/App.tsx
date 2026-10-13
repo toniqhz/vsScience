@@ -14,6 +14,7 @@ import { ChangesView } from './sidebar/ChangesView';
 import { ConnectorsView } from './sidebar/ConnectorsView';
 import { FolderContextDialog } from './explorer/FolderContextDialog';
 import { ContextMenu } from './ContextMenu';
+import { IS_DESKTOP, NEW_WINDOW_KEYS } from './platform';
 import { UpdateDialog, updateSummary } from './UpdateDialog';
 import { SearchView } from './sidebar/SearchView';
 import { SessionsView } from './sidebar/SessionsView';
@@ -160,6 +161,17 @@ function Workbench() {
   const [contextOpen, setContextOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [settingsMenu, setSettingsMenu] = useState<{ x: number; y: number } | null>(null);
+  const [notifications, setNotifications] = useState<{ supported: boolean; enabled: boolean } | null>(null);
+  // Đọc lúc mở app và mỗi lần mở menu: cài đặt dùng chung với các cửa sổ khác.
+  useEffect(() => {
+    api.notifications().then(setNotifications, () => {});
+  }, [settingsMenu]);
+  const toggleNotifications = () => {
+    if (!notifications) return;
+    const next = !notifications.enabled;
+    setNotifications({ ...notifications, enabled: next });
+    api.setNotifications(next).then(setNotifications, () => setNotifications(notifications));
+  };
   const [sideOpen, setSideOpen] = useState(true);
   const [filesOpen, setFilesOpen] = useState(false);
   const [panelCount, setPanelCount] = useState(0);
@@ -328,7 +340,20 @@ function Workbench() {
           y={settingsMenu.y}
           onClose={() => setSettingsMenu(null)}
           items={[
+            ...(IS_DESKTOP
+              ? [{ label: 'Cửa sổ mới…', icon: 'codicon-empty-window', hint: NEW_WINDOW_KEYS, onClick: () => void api.newWindow().catch(() => {}) }, 'separator' as const]
+              : []),
             { label: 'Bối cảnh thư mục…', icon: 'codicon-note', onClick: () => setContextOpen(true) },
+            ...(notifications?.supported
+              ? [
+                  {
+                    label: 'Thông báo khi Claude xong hoặc hỏi',
+                    icon: notifications.enabled ? 'codicon-bell' : 'codicon-bell-slash',
+                    checked: notifications.enabled,
+                    onClick: toggleNotifications,
+                  },
+                ]
+              : []),
             'separator',
             {
               label: update?.state === 'ready' ? `Cài bản ${update.latest}` : update?.state === 'available' ? `Có bản mới ${update.latest}` : 'Kiểm tra cập nhật',

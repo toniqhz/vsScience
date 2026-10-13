@@ -5,7 +5,7 @@ import { api } from '../api/client';
 import { useWorkspace } from '../api/workspace';
 import { ContextMenu, type ContextMenuItem } from '../ContextMenu';
 import { FILE_KIND_META } from '../fileTypes';
-import { FILE_MANAGER, IS_DESKTOP } from '../platform';
+import { FILE_MANAGER, IS_DESKTOP, NEW_WINDOW_KEYS } from '../platform';
 import { useElementSize } from '../useElementSize';
 import { OpenFolderDialog } from './OpenFolderDialog';
 
@@ -287,6 +287,11 @@ export function Explorer({
     <div className="explorer">
       <div className="explorer-title">
         <span className="sidebar-title">Thư mục</span>
+        {IS_DESKTOP && (
+          <button className="icon-btn" title={`Mở thư mục trong cửa sổ mới… (${NEW_WINDOW_KEYS})`} onClick={() => void api.newWindow().catch(() => {})}>
+            <span className="codicon codicon-empty-window" />
+          </button>
+        )}
         <button className="icon-btn" title="Mở thư mục khác…" onClick={() => setDialogOpen(true)}>
           <span className="codicon codicon-folder-opened" />
         </button>

@@ -22,6 +22,7 @@ import { packsDir, pythonHome } from './runtime.js';
 import { loadProfile } from './profile.js';
 import { buildTree } from './tree.js';
 import { WorkspaceManager, listDirs, validateWorkspaceDir } from './workspace.js';
+import { TurnNotifier, type AppNotification } from './notify.js';
 
 const ALLOWED_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -58,6 +59,8 @@ export async function buildApp(
     usageQueryFn?: UsageQueryFn;
     /** App desktop: mở thư mục trong một cửa sổ mới (mỗi cửa sổ có server và phiên Claude riêng). */
     openWindow?: (dir: string) => Promise<void>;
+    /** App desktop: chọn thư mục bằng hộp thoại của máy rồi mở cửa sổ mới; false nếu người dùng bỏ chọn. */
+    newWindow?: () => Promise<boolean>;
     /** Hiện file/thư mục trong trình quản lý file (app desktop dùng API của Electron). */
     reveal?: (absPath: string, isDir: boolean) => Promise<void>;
     /** Chuyển vào Thùng rác (app desktop). Không có thì xóa hẳn. */
@@ -71,6 +74,12 @@ export async function buildApp(
       install(): void;
       /** Báo khi trạng thái đổi; trả về hàm hủy đăng ký. */
       subscribe(fn: (u: UpdateInfo) => void): () => void;
+    };
+    /** App desktop: thông báo của hệ điều hành khi Claude xong việc, hỏi lại hoặc cần cho phép. */
+    notifier?: {
+      enabled(): boolean;
+      setEnabled(on: boolean): void;
+      notify(n: AppNotification): void;
     };
   } = {},
 ) {
@@ -154,11 +163,14 @@ export async function buildApp(
     return contentSearch.search(files, q);
   }
 
+  const turnNotifier = new TurnNotifier(() => path.basename(workspace.root));
   const agent = new AgentSession({
     cwd: () => workspace.root,
     claudeBin: config.claudeBin,
     emit: (event) => {
       broadcast({ type: 'agent', event });
+      const note = turnNotifier.next(event);
+      if (note && opts.notifier?.enabled()) opts.notifier.notify(note);
       if (event.kind === 'status') claudeBusyUntil = event.state === 'running' ? Infinity : Date.now() + AFTER_TURN_MS;
       // Mỗi lượt dùng thêm hạn mức: lấy số liệu mới cho ô hạn mức.
       if (event.kind === 'result') void planUsage.get(true).then((usage) => usage && broadcast({ type: 'usage', usage }));
@@ -279,6 +291,11 @@ export async function buildApp(
     },
   );
 
+  app.post('/api/window/new', async (_req, reply) => {
+    if (!opts.newWindow) return reply.code(404).send({ error: 'Chỉ app desktop mới mở được cửa sổ mới' });
+    return { opened: await opts.newWindow() };
+  });
+
   app.post<{ Body: { path: string } }>(
     '/api/workspace',
     {
@@ -370,6 +387,18 @@ export async function buildApp(
   }
   app.get('/api/update', async (_req, reply) => (updater ? updater.status() : reply.code(404).send({ error: 'Chỉ app desktop mới cập nhật được' })));
   app.post('/api/update/check', async (_req, reply) => (updater ? updater.check() : reply.code(404).send({ error: 'Chỉ app desktop mới cập nhật được' })));
+  /** Bật/tắt thông báo (chỉ app desktop; cài đặt chung cho mọi cửa sổ). */
+  const notifier = opts.notifier;
+  app.get('/api/notifications', async () => ({ supported: !!notifier, enabled: notifier?.enabled() ?? false }));
+  app.post<{ Body: { enabled: boolean } }>(
+    '/api/notifications',
+    { schema: { body: { type: 'object', required: ['enabled'], properties: { enabled: { type: 'boolean' } } } } },
+    async (req, reply) => {
+      if (!notifier) return reply.code(404).send({ error: 'Chỉ app desktop mới có thông báo' });
+      notifier.setEnabled(req.body.enabled);
+      return { supported: true, enabled: notifier.enabled() };
+    },
+  );
   app.post('/api/update/install', async (_req, reply) => {
     if (!updater) return reply.code(404).send({ error: 'Chỉ app desktop mới cập nhật được' });
     if (!updater.status().canInstall) return reply.code(409).send({ error: 'Chưa có bản cập nhật đã tải xong' });
