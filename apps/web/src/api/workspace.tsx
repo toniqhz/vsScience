@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { AgentEvent, PackInfo, PlanUsage, TreeResponse, UpdateInfo, WorkspaceInfo } from '@ide/shared';
+import type { AgentEvent, FolderBusy, PackInfo, PlanUsage, TreeResponse, UpdateInfo, WorkspaceInfo } from '@ide/shared';
 import { api, connectEvents } from './client';
 
 type FileListener = () => void;
@@ -28,6 +28,10 @@ interface WorkspaceState {
   packs: PackInfo[] | null;
   /** Cập nhật app desktop; null trong trình duyệt / bản chạy thử. */
   update: UpdateInfo | null;
+  /** Claude của cửa sổ này đang làm việc. */
+  agentRunning: boolean;
+  /** Claude ở cửa sổ khác đang làm trong thư mục trùng/cha/con: tạm khóa gửi tin nhắn. */
+  busyElsewhere: FolderBusy | null;
 }
 
 const WorkspaceContext = createContext<WorkspaceState | null>(null);
@@ -43,6 +47,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [planUsage, setPlanUsage] = useState<PlanUsage | null>(null);
   const [packs, setPacks] = useState<PackInfo[] | null>(null);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [agentRunning, setAgentRunning] = useState(false);
+  const [busyElsewhere, setBusyElsewhere] = useState<FolderBusy | null>(null);
   useEffect(() => {
     api.packs().then(setPacks, () => setPacks([]));
     api.updateStatus().then(setUpdate, () => setUpdate(null));
@@ -114,11 +120,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           setChangesRev((n) => n + 1);
           return;
         }
+        if (event.type === 'lock') {
+          setBusyElsewhere(event.busyElsewhere);
+          return;
+        }
         if (event.type === 'agent') {
+          if (event.event.kind === 'status') setAgentRunning(event.event.state === 'running');
+          if (event.event.kind === 'cleared') setAgentRunning(false);
           agentListeners.current.forEach((l) => l({ type: 'event', event: event.event }));
           return;
         }
         if (event.type === 'agent-replay') {
+          const last = [...event.events].reverse().find((e) => e.kind === 'status');
+          setAgentRunning(last?.kind === 'status' && last.state === 'running');
           agentListeners.current.forEach((l) => l({ type: 'replay', events: event.events }));
           return;
         }
@@ -180,8 +194,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       refreshUsage,
       packs,
       update,
+      agentRunning,
+      busyElsewhere,
     }),
-    [info, tree, error, connected, sessionsRev, artifactsRev, changesRev, loadTree, planUsage, refreshUsage, packs, update],
+    [info, tree, error, connected, sessionsRev, artifactsRev, changesRev, loadTree, planUsage, refreshUsage, packs, update, agentRunning, busyElsewhere],
   );
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

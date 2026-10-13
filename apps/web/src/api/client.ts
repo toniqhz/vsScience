@@ -1,5 +1,6 @@
 import type {
   AgentMode,
+  FolderBusy,
   UpdateInfo,
   FolderContext,
   ConnectorInfo,
@@ -134,6 +135,8 @@ export const api = {
   agentInterrupt: async () => void (await request('/api/agent/interrupt', {})),
   agentPermission: async (id: string, allow: boolean, always = false) =>
     void (await request('/api/agent/permission', { id, allow, always })),
+  agentLock: async () => (await request('/api/agent/lock')).json() as Promise<{ busyElsewhere: FolderBusy | null }>,
+  focusBusyWindow: async () => void (await request('/api/agent/lock/focus', {})),
   agentClear: async () => void (await request('/api/agent/clear', {})),
   agentProfile: async () =>
     ((await (await request('/api/agent/profile')).json()) as { profile: ClaudeProfileInfo | null }).profile,

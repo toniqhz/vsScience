@@ -41,7 +41,7 @@ function loadPrefs(): Prefs {
  * hội thoại dựng từ luồng sự kiện qua WebSocket, nên tải lại trang vẫn giữ nguyên.
  */
 export function ChatPanel({ activePath, onOpenFile }: { activePath: string | null; onOpenFile: (path: string) => void }) {
-  const { onAgent, planUsage, refreshUsage, packs } = useWorkspace();
+  const { onAgent, planUsage, refreshUsage, packs, busyElsewhere } = useWorkspace();
   const [packOpen, setPackOpen] = useState<string | null>(null);
   const dataPack = packs?.find((p) => p.id === 'data') ?? null;
   // Lần đầu mở app (bản desktop): hỏi có cài gói phân tích số liệu không.
@@ -405,6 +405,14 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
           connected={connected}
           running={agent.running}
           onStop={() => api.agentInterrupt().catch(fail)}
+          blocked={
+            busyElsewhere && !agent.running
+              ? {
+                  text: `Claude đang làm việc trong thư mục «${busyElsewhere.folder}» ở cửa sổ khác. Tạm khóa gửi tin nhắn để hai bên không cùng sửa một file — tự mở khi bên kia xong.`,
+                  action: { label: 'Chuyển tới cửa sổ đó', onClick: () => void api.focusBusyWindow().catch(fail) },
+                }
+              : null
+          }
           menu={menu}
           insertRequest={insertRequest}
           onMenuChange={setMenu}

@@ -53,6 +53,8 @@ export interface ComposerProps {
   /** Claude đang làm việc: nút gửi thành nút dừng, Esc để dừng. */
   running: boolean;
   onStop: () => void;
+  /** Tạm khóa gửi (Claude ở cửa sổ khác đang làm trong thư mục này): lý do và nút xử lý. Vẫn gõ nháp được. */
+  blocked?: { text: string; action?: { label: string; onClick: () => void } } | null;
   menu: ComposerMenu;
   /** Đổi `n` để điền `text` (nếu có) vào ô chat và focus. */
   insertRequest: { text: string; n: number } | null;
@@ -204,7 +206,7 @@ export function Composer(props: ComposerProps) {
 
   const submit = () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || props.blocked) return;
     if (trimmed.startsWith('/')) {
       const name = trimmed.slice(1).split(/\s/)[0] ?? '';
       const cmd = findCommand(name);
@@ -276,12 +278,23 @@ export function Composer(props: ComposerProps) {
       className={`composer ${connected ? '' : 'is-locked'}`}
       // Chưa kết nối Claude: bấm vào bất kỳ đâu trong ô chat sẽ mở cửa sổ đăng nhập.
       onMouseDownCapture={(e) => {
-        if (connected) return;
+        if (connected || (e.target as HTMLElement).closest('.composer-blocked')) return;
         e.preventDefault();
         e.stopPropagation();
         props.onRequireLogin();
       }}
     >
+      {props.blocked && (
+        <div className="composer-blocked" role="status">
+          <span className="codicon codicon-lock" />
+          <span className="composer-blocked-text">{props.blocked.text}</span>
+          {props.blocked.action && (
+            <button className="link-btn" onClick={props.blocked.action.onClick}>
+              {props.blocked.action.label}
+            </button>
+          )}
+        </div>
+      )}
       {popup && popupItems.length > 0 && (
         <div className="composer-popup" ref={popupListRef} role="listbox">
           <div className="popup-title">{popup.kind === 'mention' ? 'Nhắc tới file hoặc thư mục' : 'Lệnh'}</div>
@@ -438,7 +451,7 @@ export function Composer(props: ComposerProps) {
             <span className="codicon codicon-debug-stop" />
           </button>
         ) : (
-          <button className="send-btn" title="Gửi (Enter)" disabled={!text.trim()} onClick={submit}>
+          <button className="send-btn" title={props.blocked ? 'Tạm khóa — xem dòng ghi chú phía trên' : 'Gửi (Enter)'} disabled={!text.trim() || !!props.blocked} onClick={submit}>
             <span className="codicon codicon-arrow-up" />
           </button>
         )}

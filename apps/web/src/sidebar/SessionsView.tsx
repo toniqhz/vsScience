@@ -6,7 +6,9 @@ import { timeAgo } from '../format';
 
 /** Danh sách phiên hội thoại Claude của thư mục làm việc: mở lại, đổi tên, xóa, tạo mới. */
 export function SessionsView() {
-  const { sessionsRev, info } = useWorkspace();
+  const { sessionsRev, info, agentRunning } = useWorkspace();
+  /** Claude đang làm: không chuyển, tạo hay xóa phiên đang chạy (chuyển giữa chừng sẽ dừng việc Claude đang làm). */
+  const locked = agentRunning;
   const [sessions, setSessions] = useState<AgentSessionInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ id: string; title: string } | null>(null);
@@ -36,7 +38,12 @@ export function SessionsView() {
     <div className="explorer">
       <div className="explorer-title">
         <span className="sidebar-title">Phiên Claude</span>
-        <button className="icon-btn" title="Phiên mới" onClick={() => api.agentClear().catch(fail)}>
+        <button
+          className="icon-btn"
+          title={locked ? 'Claude đang làm việc — chờ xong hoặc bấm dừng để mở phiên mới' : 'Phiên mới'}
+          disabled={locked}
+          onClick={() => api.agentClear().catch(fail)}
+        >
           <span className="codicon codicon-add" />
         </button>
         <button className="icon-btn" title="Làm mới" onClick={() => setReload((n) => n + 1)}>
@@ -44,6 +51,12 @@ export function SessionsView() {
         </button>
       </div>
       <div className="side-list">
+        {locked && (
+          <div className="side-count session-lock">
+            <span className="codicon codicon-loading codicon-modifier-spin" /> Claude đang làm ở phiên hiện tại. Chờ xong hoặc bấm dừng để chuyển
+            phiên khác.
+          </div>
+        )}
         {error && <div className="sidebar-message is-error">{error}</div>}
         {!sessions && !error && <div className="side-count">Đang tải…</div>}
         {sessions?.length === 0 && <div className="side-count">Chưa có phiên nào. Nhắn cho Claude để bắt đầu.</div>}
@@ -64,8 +77,12 @@ export function SessionsView() {
               />
             </div>
           ) : (
-            <div key={s.id} className={`side-row session-row ${s.current ? 'is-current' : ''}`} title={s.title}>
-              <button className="side-row-main" onClick={() => !s.current && api.openSession(s.id).catch(fail)}>
+            <div
+              key={s.id}
+              className={`side-row session-row ${s.current ? 'is-current' : ''} ${locked && !s.current ? 'is-locked' : ''}`}
+              title={locked && !s.current ? 'Claude đang làm ở phiên hiện tại — chờ xong hoặc bấm dừng để chuyển' : s.title}
+            >
+              <button className="side-row-main" disabled={locked && !s.current} onClick={() => !s.current && api.openSession(s.id).catch(fail)}>
                 <span className={`codicon ${s.current ? 'codicon-comment-discussion' : 'codicon-comment'}`} />
                 <span className="side-row-name">{s.title}</span>
                 <span className="side-row-dir">{timeAgo(s.lastModified)}</span>
@@ -77,6 +94,7 @@ export function SessionsView() {
                 <button
                   className="icon-btn"
                   title="Xóa phiên"
+                  disabled={locked && s.current}
                   onClick={() => window.confirm(`Xóa phiên "${s.title}"? Không khôi phục được.`) && api.deleteSession(s.id).catch(fail)}
                 >
                   <span className="codicon codicon-trash" />

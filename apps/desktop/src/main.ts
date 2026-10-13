@@ -39,6 +39,7 @@ async function startServer(
     workspace?: string;
     openWindow?: (dir: string) => Promise<void>;
     newWindow?: () => Promise<boolean>;
+    focusWindow?: () => void;
     notifier?: ReturnType<typeof notifierFor>;
   } = {},
 ) {
@@ -51,6 +52,7 @@ async function startServer(
   const { app: server, workspace } = await buildApp(config, {
     openWindow: opts.openWindow,
     newWindow: opts.newWindow,
+    focusWindow: opts.focusWindow,
     updater,
     notifier: opts.notifier,
     // Xóa từ menu chuột phải: vào Thùng rác (Recycle Bin / Trash) để lấy lại được.
@@ -160,6 +162,12 @@ async function createWindow(dir?: string) {
     workspace: dir,
     openWindow,
     newWindow: () => newWindow(ownWin),
+    focusWindow: () => {
+      if (!ownWin || ownWin.isDestroyed()) return;
+      if (ownWin.isMinimized()) ownWin.restore();
+      ownWin.show();
+      ownWin.focus();
+    },
     notifier: notifierFor(() => ownWin),
   });
   const win = new BrowserWindow({

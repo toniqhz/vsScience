@@ -3917,3 +3917,47 @@ a.btn {
 .update-note {
   margin-top: 6px;
 }
+
+/* Ô chat tạm khóa: Claude ở cửa sổ khác đang làm trong thư mục này */
+.composer-blocked {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: -2px -2px 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(204, 167, 0, 0.12);
+  border: 1px solid rgba(204, 167, 0, 0.35);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.composer-blocked .codicon {
+  margin-top: 1px;
+  color: #cca700;
+}
+
+.composer-blocked-text {
+  flex: 1;
+}
+
+.composer-blocked .link-btn {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* Danh sách phiên khi Claude đang làm */
+.session-lock {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.session-row.is-locked {
+  opacity: 0.45;
+}
+
+.session-row.is-locked .side-row-main {
+  cursor: not-allowed;
+}

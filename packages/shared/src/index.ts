@@ -258,7 +258,16 @@ export type ServerEvent =
   | { type: 'artifacts-changed' }
   | { type: 'usage'; usage: PlanUsage }
   | { type: 'pack'; pack: PackInfo }
-  | { type: 'update'; update: UpdateInfo };
+  | { type: 'update'; update: UpdateInfo }
+  /** Claude ở cửa sổ khác đang làm trong thư mục trùng/lồng với thư mục này (null: không có). */
+  | { type: 'lock'; busyElsewhere: FolderBusy | null };
+
+/** Cửa sổ khác đang có Claude làm việc trong thư mục trùng, cha hoặc con của thư mục đang mở. */
+export interface FolderBusy {
+  /** Tên thư mục của cửa sổ kia. */
+  folder: string;
+  root: string;
+}
 
 /**
  * Cập nhật app desktop. Windows: tải ngầm rồi cài khi khởi động lại (canInstall). Mac (chưa ký Apple Developer ID):

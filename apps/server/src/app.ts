@@ -1,11 +1,11 @@
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
 import { lstat, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import Fastify, { type FastifyRequest } from 'fastify';
 import websocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
-import type { ServerEvent, UpdateInfo } from '@ide/shared';
+import type { FolderBusy, ServerEvent, UpdateInfo } from '@ide/shared';
 import { AgentSession, type QueryFn, type SessionApi } from './agent.js';
 import { ArtifactStore, artifactTitle, artifactUrl, artifactsFromMessages, isDocsTool, linkTitle } from './artifacts.js';
 import { ClaudeAuth } from './claude-auth.js';
@@ -23,6 +23,7 @@ import { loadProfile } from './profile.js';
 import { buildTree } from './tree.js';
 import { WorkspaceManager, listDirs, validateWorkspaceDir } from './workspace.js';
 import { TurnNotifier, type AppNotification } from './notify.js';
+import { FolderLocks, folderLocks } from './folderLock.js';
 
 const ALLOWED_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -61,6 +62,10 @@ export async function buildApp(
     openWindow?: (dir: string) => Promise<void>;
     /** App desktop: chọn thư mục bằng hộp thoại của máy rồi mở cửa sổ mới; false nếu người dùng bỏ chọn. */
     newWindow?: () => Promise<boolean>;
+    /** App desktop: đưa cửa sổ này lên trước (khi cửa sổ khác bấm "Chuyển tới cửa sổ đó"). */
+    focusWindow?: () => void;
+    /** Bộ khóa thư mục dùng chung giữa các cửa sổ (test truyền bộ riêng). */
+    folderLocks?: FolderLocks;
     /** Hiện file/thư mục trong trình quản lý file (app desktop dùng API của Electron). */
     reveal?: (absPath: string, isDir: boolean) => Promise<void>;
     /** Chuyển vào Thùng rác (app desktop). Không có thì xóa hẳn. */
@@ -164,11 +169,33 @@ export async function buildApp(
   }
 
   const turnNotifier = new TurnNotifier(() => path.basename(workspace.root));
+  // Khóa thư mục khi Claude đang làm: cửa sổ khác cùng thư mục (hoặc thư mục cha/con) không gửi được tin nhắn.
+  const locks = opts.folderLocks ?? folderLocks;
+  const lockId = randomUUID();
+  const busyElsewhere = (): FolderBusy | null => {
+    const h = locks.conflict(lockId, workspace.root);
+    return h ? { folder: path.basename(h.root), root: h.root } : null;
+  };
+  let lastBusy = '';
+  const broadcastLock = () => {
+    const busy = busyElsewhere();
+    const key = JSON.stringify(busy);
+    if (key === lastBusy) return;
+    lastBusy = key;
+    broadcast({ type: 'lock', busyElsewhere: busy });
+  };
+  const unsubscribeLocks = locks.subscribe(broadcastLock);
+  app.addHook('onClose', async () => {
+    unsubscribeLocks();
+    locks.release(lockId);
+  });
+  const BUSY_HERE = 'Claude đang làm việc. Bấm dừng hoặc chờ Claude xong rồi mới chuyển.';
   const agent = new AgentSession({
     cwd: () => workspace.root,
     claudeBin: config.claudeBin,
     emit: (event) => {
       broadcast({ type: 'agent', event });
+      if (event.kind === 'status' && event.state === 'idle') locks.release(lockId);
       const note = turnNotifier.next(event);
       if (note && opts.notifier?.enabled()) opts.notifier.notify(note);
       if (event.kind === 'status') claudeBusyUntil = event.state === 'running' ? Infinity : Date.now() + AFTER_TURN_MS;
@@ -307,11 +334,13 @@ export async function buildApp(
         },
       },
     },
-    async (req) => {
+    async (req, reply) => {
+      if (agent.running) return reply.code(409).send({ error: BUSY_HERE });
       const info = await workspace.open(req.body.path);
       // Phiên trợ lý và bản lưu gắn với thư mục làm việc.
       await agent.clear();
       void openSnapshots(info.root);
+      broadcastLock();
       return info;
     },
   );
@@ -337,9 +366,21 @@ export async function buildApp(
         },
       },
     },
-    async (req) => {
+    async (req, reply) => {
       const { text, files, model, effort, mode } = req.body;
-      await agent.send(text, files, { model, effort: (effort as never) ?? null, mode });
+      const other = locks.acquire({ id: lockId, root: workspace.root, focus: opts.focusWindow });
+      if (other) {
+        broadcastLock();
+        return reply.code(409).send({
+          error: `Claude đang làm việc trong thư mục «${path.basename(other.root)}» ở cửa sổ khác. Chờ bên đó xong (hoặc dừng ở cửa sổ đó) rồi gửi lại, để hai bên không cùng sửa một file.`,
+        });
+      }
+      try {
+        await agent.send(text, files, { model, effort: (effort as never) ?? null, mode });
+      } catch (err) {
+        if (!agent.running) locks.release(lockId);
+        throw err;
+      }
       return { ok: true };
     },
   );
@@ -365,7 +406,16 @@ export async function buildApp(
       return { ok: true };
     },
   );
-  app.post('/api/agent/clear', async () => {
+  app.get('/api/agent/lock', async () => ({ busyElsewhere: busyElsewhere() }));
+  /** Chuyển tới cửa sổ đang có Claude làm việc trong thư mục này. */
+  app.post('/api/agent/lock/focus', async (_req, reply) => {
+    const h = locks.conflict(lockId, workspace.root);
+    if (!h?.focus) return reply.code(404).send({ error: 'Không còn cửa sổ nào khác đang làm trong thư mục này' });
+    h.focus();
+    return { ok: true };
+  });
+  app.post('/api/agent/clear', async (_req, reply) => {
+    if (agent.running) return reply.code(409).send({ error: BUSY_HERE });
     await agent.clear();
     return { ok: true };
   });
@@ -449,7 +499,8 @@ export async function buildApp(
   app.post<{ Body: { id: string } }>(
     '/api/agent/sessions/open',
     { schema: { body: { type: 'object', required: ['id'], properties: { id: sessionIdSchema } } } },
-    async (req) => {
+    async (req, reply) => {
+      if (agent.running) return reply.code(409).send({ error: BUSY_HERE });
       await agent.openSession(req.body.id);
       return { ok: true };
     },
@@ -473,7 +524,8 @@ export async function buildApp(
   app.post<{ Body: { id: string } }>(
     '/api/agent/sessions/delete',
     { schema: { body: { type: 'object', required: ['id'], properties: { id: sessionIdSchema } } } },
-    async (req) => {
+    async (req, reply) => {
+      if (agent.running && req.body.id === agent.sessionId) return reply.code(409).send({ error: BUSY_HERE });
       await agent.deleteSession(req.body.id);
       return { ok: true };
     },
@@ -647,6 +699,7 @@ export async function buildApp(
     socket.send(JSON.stringify(hello));
     const replay: ServerEvent = { type: 'agent-replay', events: agent.events() };
     socket.send(JSON.stringify(replay));
+    socket.send(JSON.stringify({ type: 'lock', busyElsewhere: busyElsewhere() } satisfies ServerEvent));
     socket.on('close', () => sockets.delete(socket));
   });
 
