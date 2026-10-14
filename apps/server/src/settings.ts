@@ -41,14 +41,17 @@ const folderFile = (root: string) => folderDataPath(root, 'settings.json');
 export function readFolderSettings(root: string): FolderSettings {
   const raw = readJson(folderFile(root));
   const chat = raw.chat as FolderSettings['chat'] | undefined;
+  const cloud = raw.cloud as FolderSettings['cloud'] | undefined;
   return {
     autoSave: typeof raw.autoSave === 'boolean' ? raw.autoSave : true,
     ...(chat && typeof chat === 'object' && typeof chat.model === 'string' ? { chat } : {}),
+    ...(cloud && typeof cloud === 'object' && typeof cloud.folderId === 'string' && typeof cloud.remoteName === 'string' ? { cloud } : {}),
   };
 }
 
-export function writeFolderSettings(root: string, patch: Partial<FolderSettings>): FolderSettings {
-  const next = { ...readFolderSettings(root), ...patch };
+/** `replace`: ghi đúng `patch` (bỏ các mục không có, ví dụ tắt đồng bộ); mặc định gộp với cài đặt hiện có. */
+export function writeFolderSettings(root: string, patch: Partial<FolderSettings>, replace = false): FolderSettings {
+  const next = (replace ? { autoSave: true, ...patch } : { ...readFolderSettings(root), ...patch }) as FolderSettings;
   writeJson(folderFile(root), next);
   return next;
 }

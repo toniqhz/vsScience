@@ -21,6 +21,19 @@ export function timeAgo(ms: number, now = Date.now()): string {
   return new Date(ms).toLocaleDateString('vi-VN');
 }
 
+/** Cỡ file dễ đọc: 1,2 MB. */
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toLocaleString('vi-VN', { maximumFractionDigits: v < 10 ? 1 : 0 })} ${units[i]}`;
+}
+
 export function dirName(path: string): string {
   const i = path.lastIndexOf('/');
   return i > 0 ? path.slice(0, i) : '';

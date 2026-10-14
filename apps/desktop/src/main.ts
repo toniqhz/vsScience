@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { BrowserWindow, Menu, app, dialog, shell } from 'electron';
+import { BrowserWindow, Menu, app, dialog, safeStorage, shell } from 'electron';
 import { notifierFor } from './notifications.js';
 import { Updater } from './updater.js';
 
@@ -55,6 +55,13 @@ async function startServer(
     focusWindow: opts.focusWindow,
     updater,
     notifier: opts.notifier,
+    // Mã đăng nhập OneDrive/Google Drive: mã hóa bằng kho bảo mật của hệ điều hành (Keychain, DPAPI…).
+    secrets: safeStorage.isEncryptionAvailable()
+      ? {
+          encrypt: (text: string) => safeStorage.encryptString(text).toString('base64'),
+          decrypt: (text: string) => safeStorage.decryptString(Buffer.from(text, 'base64')),
+        }
+      : undefined,
     // Xóa từ menu chuột phải: vào Thùng rác (Recycle Bin / Trash) để lấy lại được.
     trashItem: (abs) => shell.trashItem(abs),
     reveal: async (abs, isDir) => {

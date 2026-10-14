@@ -16,6 +16,7 @@ import { FolderContextDialog } from './explorer/FolderContextDialog';
 import { ContextMenu } from './ContextMenu';
 import { IS_DESKTOP, NEW_WINDOW_KEYS } from './platform';
 import { UpdateDialog, updateSummary } from './UpdateDialog';
+import { cloudBadge } from './sidebar/CloudDialog';
 import { SearchView } from './sidebar/SearchView';
 import { SessionsView } from './sidebar/SessionsView';
 import { WorkbenchContext, type SnapshotRef } from './workbenchContext';
@@ -64,6 +65,8 @@ function ActivityBar({
   /** Có bản cập nhật đã tải xong / có bản mới: chấm báo trên nút cài đặt. */
   updateReady: boolean;
 }) {
+  const { cloud } = useWorkspace();
+  const badge = cloudBadge(cloud);
   return (
     <nav className="activity-bar">
       {VIEWS.map((v) => (
@@ -75,6 +78,7 @@ function ActivityBar({
         >
           <span className={`codicon ${v.icon}`} />
           {v.id === 'changes' && changeCount > 0 && <span className="activity-badge">{changeCount > 99 ? '99+' : changeCount}</span>}
+          {v.id === 'changes' && badge.tone && <span className={`codicon codicon-cloud activity-cloud ${badge.tone}`} title={badge.title} />}
         </button>
       ))}
       <div className="activity-spacer" />

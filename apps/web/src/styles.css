@@ -18,6 +18,9 @@
   --text-muted: #9d9d9d;
   --text-faint: #6e6e6e;
   --accent: #3794ff;
+  /* Đồng bộ đám mây: đã bật (vàng), có vấn đề (đỏ cam). */
+  --cloud: #e8b931;
+  --cloud-warn: #f0705a;
   --claude: #d97757;
   --danger: #f48771;
   --status-bg: #007acc;
@@ -3960,4 +3963,211 @@ a.btn {
 
 .session-row.is-locked .side-row-main {
   cursor: not-allowed;
+}
+
+/* Đồng bộ đám mây */
+.cloud-btn {
+  position: relative;
+}
+
+.cloud-dot {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+/* Đám mây nhỏ ở góc biểu tượng Thay đổi trên thanh bên trái. */
+.activity-item .codicon.activity-cloud {
+  position: absolute;
+  top: 7px;
+  right: 6px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--cloud);
+  background: var(--bg-activity);
+  border-radius: 50%;
+  padding: 1px;
+}
+
+.activity-item .codicon.activity-cloud.is-busy {
+  animation: cloud-pulse 0.9s ease-in-out infinite alternate;
+}
+
+.activity-item .codicon.activity-cloud.is-warn {
+  color: var(--cloud-warn);
+}
+
+/* Đã kết nối và bật đồng bộ: đám mây màu vàng. */
+.cloud-btn.is-on .codicon,
+.cloud-btn.is-busy .codicon {
+  color: var(--cloud);
+}
+
+.cloud-btn.is-busy .codicon {
+  animation: cloud-pulse 0.9s ease-in-out infinite alternate;
+}
+
+.cloud-btn.is-warn .cloud-dot {
+  background: var(--cloud-warn);
+}
+
+@keyframes cloud-pulse {
+  from {
+    opacity: 0.35;
+  }
+}
+
+.cloud-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.cloud-body {
+  padding: 4px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.cloud-hint {
+  margin: 4px 0;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.cloud-section-title {
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.cloud-provider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+
+.cloud-provider-name {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cloud-provider-account {
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
+.cloud-note.is-warn,
+.cloud-status.is-warn {
+  color: var(--cloud-warn);
+}
+
+.cloud-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  line-height: 1.45;
+}
+
+.cloud-status.is-on .codicon {
+  color: var(--cloud);
+}
+
+.cloud-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.cloud-provider-soon {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--bg-selected-focus);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* Mở thư mục: thư mục trên đám mây */
+.cloud-side-icon {
+  color: var(--cloud);
+}
+
+.side-item.is-active {
+  background: var(--bg-selected-focus);
+}
+
+.cloud-path-title {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Thư mục trên đám mây: hai dòng (tên + máy, thời gian, cỡ) — cao theo nội dung, không cố định 26px. */
+.dir-item.cloud-folder-item {
+  height: auto;
+  min-height: 48px;
+  padding: 8px 12px;
+  margin: 2px 6px;
+  width: calc(100% - 12px);
+  border-radius: 6px;
+  gap: 10px;
+}
+
+.cloud-folder-item > .codicon {
+  font-size: 18px;
+}
+
+.cloud-folder-item .dir-name {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.3;
+}
+
+.cloud-folder-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.clone-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border-radius: 6px;
+  background: rgba(232, 185, 49, 0.12);
+  border: 1px solid rgba(232, 185, 49, 0.35);
+  font-size: 12px;
+}
+
+.clone-banner > span:nth-child(2) {
+  flex: 1;
+}
+
+.clone-banner .codicon {
+  color: var(--cloud);
 }

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { ChangeStatus, ChangesResponse, RestoreResult, Snapshot, SnapshotDetail } from '@ide/shared';
 import { api } from '../api/client';
+import { useWorkspace } from '../api/workspace';
+import { CloudDialog, cloudBadge } from './CloudDialog';
 import { baseName } from '../fileTypes';
 import { dirName, timeAgo } from '../format';
 import { useWorkbench } from '../workbenchContext';
@@ -25,6 +27,9 @@ function fileIcon(path: string): string {
  */
 export function ChangesView({ data, onRefresh }: { data: ChangesResponse | null; onRefresh: () => void }) {
   const { openDiff, openPath } = useWorkbench();
+  const { cloud } = useWorkspace();
+  const [cloudOpen, setCloudOpen] = useState(false);
+  const badge = cloudBadge(cloud);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,10 +59,15 @@ export function ChangesView({ data, onRefresh }: { data: ChangesResponse | null;
     <div className="explorer">
       <div className="explorer-title">
         <span className="sidebar-title">Thay đổi</span>
+        <button className={`icon-btn cloud-btn ${badge.tone}`} title={badge.title} onClick={() => setCloudOpen(true)}>
+          <span className={`codicon ${badge.icon}`} />
+          {badge.tone === 'is-warn' && <span className="cloud-dot" />}
+        </button>
         <button className="icon-btn" title="Làm mới" onClick={onRefresh}>
           <span className="codicon codicon-refresh" />
         </button>
       </div>
+      {cloudOpen && <CloudDialog onClose={() => setCloudOpen(false)} />}
       <div className="commit-box">
         <textarea
           rows={2}

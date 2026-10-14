@@ -262,7 +262,8 @@ export type ServerEvent =
   /** Claude ở cửa sổ khác đang làm trong thư mục trùng/lồng với thư mục này (null: không có). */
   | { type: 'lock'; busyElsewhere: FolderBusy | null }
   /** Bản chạy trên trình duyệt: trang tự hiện thông báo của trình duyệt (app desktop dùng thông báo của hệ điều hành). */
-  | { type: 'notify'; title: string; body: string };
+  | { type: 'notify'; title: string; body: string }
+  | { type: 'cloud'; cloud: CloudStatus };
 
 /** Cài đặt của thư mục làm việc (lưu trong .vsscience/settings.json, đi theo thư mục sang máy khác). */
 export interface FolderSettings {
@@ -270,6 +271,57 @@ export interface FolderSettings {
   autoSave: boolean;
   /** Lựa chọn của ô chat. */
   chat?: { model: string; effort: string | null; mode: AgentMode };
+  /** Đồng bộ lên ổ đám mây: nhà cung cấp, mã thư mục, tên thư mục trên ổ. */
+  cloud?: { provider: CloudProviderId; folderId: string; remoteName: string };
+}
+
+// ---------- Đồng bộ đám mây ----------
+
+/** 'local': ổ thử nghiệm (một thư mục trên máy) khi chạy thử. */
+export type CloudProviderId = 'onedrive' | 'gdrive' | 'local';
+
+export interface CloudProviderInfo {
+  id: CloudProviderId;
+  name: string;
+  /** Dùng được trên bản này (đã cấu hình client ID…). */
+  available: boolean;
+  /** Lý do chưa dùng được, hoặc ghi chú. */
+  note?: string;
+  /** Tài khoản đã kết nối trên máy này. */
+  account: { name: string; email?: string } | null;
+}
+
+export interface CloudFolderStatus {
+  /** behind: máy khác đã đồng bộ bản mới hơn, cần lấy về trước. */
+  state: 'idle' | 'syncing' | 'synced' | 'behind' | 'error';
+  lastSync?: number;
+  error?: string;
+  progress?: { done: number; total: number };
+  /** Máy và lúc đồng bộ bản mới hơn trên ổ (khi behind). */
+  remoteDevice?: string;
+  remoteTime?: number;
+}
+
+export interface CloudStatus {
+  providers: CloudProviderInfo[];
+  /** Thư mục đang mở có đồng bộ không, lên đâu. */
+  folder: { provider: CloudProviderId; remoteName: string } | null;
+  sync: CloudFolderStatus;
+  /** Đang chờ người dùng đăng nhập trong trình duyệt. */
+  connecting?: CloudProviderId;
+  /** Đang tải một thư mục từ mây về máy này. */
+  clone?: { name: string; done: number; total: number };
+}
+
+/** Một thư mục đã đồng bộ trên ổ đám mây (để tải về máy này). */
+export interface CloudRemoteFolder {
+  name: string;
+  folderId: string;
+  /** Máy đồng bộ lần cuối. */
+  device: string;
+  updatedAt: number;
+  files: number;
+  bytes: number;
 }
 
 /** Cửa sổ khác đang có Claude làm việc trong thư mục trùng, cha hoặc con của thư mục đang mở. */

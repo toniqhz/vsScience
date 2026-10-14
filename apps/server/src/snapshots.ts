@@ -21,8 +21,8 @@ function tracked(filepath: string): boolean {
 
 /**
  * Bản lưu phiên bản bằng git chạy ngầm (isomorphic-git, không cần cài git).
- * Kho git nằm ngoài thư mục làm việc (~/.config/ide/snapshots/<mã>) để không
- * thêm thư mục .git vào thư mục tài liệu của người dùng.
+ * Kho git nằm trong .vsscience/history của thư mục làm việc (không phải thư mục .git, để không lẫn
+ * với git của người dùng); thư mục không ghi được thì nằm trong thư mục dữ liệu của app.
  */
 export class Snapshots {
   #root = '';
@@ -61,6 +61,49 @@ export class Snapshots {
         await this.#commitAll('Bản đầu tiên');
       }
     });
+  }
+
+  /** Bản lưu mới nhất (mã commit); null nếu chưa có. */
+  headOid(): Promise<string | null> {
+    return this.#serial(() => this.#head());
+  }
+
+  /**
+   * Gói (packfile git) mọi đối tượng của các bản lưu sau bản `since` (null: toàn bộ lịch sử), để đẩy lên mây.
+   * null nếu không có bản lưu mới.
+   */
+  packSince(since: string | null): Promise<{ head: string; pack: Uint8Array } | null> {
+    return this.#serial(async () => {
+      const head = await this.#head();
+      if (!head || head === since) return null;
+      // Mọi bản lưu đi tới được từ `head` mà trên mây chưa có (đi tới được từ `since`) — kể cả nhánh của bản gộp.
+      const commits = await git.log({ ...this.#repo(), ref: head });
+      const already = new Set<string>();
+      const known = new Set<string>();
+      if (since) {
+        for (const c of await git.log({ ...this.#repo(), ref: since }).catch(() => [])) already.add(c.oid);
+        const { commit } = await git.readCommit({ ...this.#repo(), oid: since }).catch(() => ({ commit: null }));
+        if (commit) await this.#collectTree(commit.tree, known, new Set());
+      }
+      const oids = new Set<string>();
+      for (const c of commits) {
+        if (already.has(c.oid) || oids.has(c.oid)) continue;
+        oids.add(c.oid);
+        await this.#collectTree(c.commit.tree, oids, known);
+      }
+      const { packfile } = await git.packObjects({ ...this.#repo(), oids: [...oids], write: false });
+      return { head, pack: packfile! };
+    });
+  }
+
+  async #collectTree(oid: string, out: Set<string>, skip: Set<string>) {
+    if (out.has(oid) || skip.has(oid)) return;
+    out.add(oid);
+    const { tree } = await git.readTree({ ...this.#repo(), oid });
+    for (const e of tree) {
+      if (e.type === 'tree') await this.#collectTree(e.oid, out, skip);
+      else if (e.type === 'blob' && !skip.has(e.oid)) out.add(e.oid);
+    }
   }
 
   async #head(): Promise<string | null> {
@@ -108,7 +151,7 @@ export class Snapshots {
   }
 
   /** Lưu mọi thay đổi thành một bản lưu. Trả về false nếu không có gì thay đổi. */
-  async #commitAll(message: string): Promise<boolean> {
+  async #commitAll(message: string, mergeParent?: string): Promise<boolean> {
     const changed = await this.#changed();
     let staged = 0;
     for (const f of changed) {
@@ -123,9 +166,63 @@ export class Snapshots {
       staged++;
     }
     const head = await this.#head();
-    if (staged === 0 && head) return false;
-    await git.commit({ ...this.#repo(), message, author: AUTHOR });
+    if (staged === 0 && head && !mergeParent) return false;
+    await git.commit({ ...this.#repo(), message, author: AUTHOR, ...(mergeParent && head ? { parent: [head, mergeParent] } : {}) });
     return true;
+  }
+
+  // ---------- Lấy bản từ máy khác (đồng bộ đám mây) ----------
+
+  /** Nạp các gói lịch sử tải từ mây vào kho. */
+  importPacks(packs: { name: string; data: Uint8Array }[]): Promise<void> {
+    return this.#serial(() => writePacks(this.#root, this.#gitdir, packs));
+  }
+
+  /** Lấy nhanh: chưa sửa gì kể từ lần đồng bộ trước — đưa thư mục về đúng bản `oid` của máy khác. */
+  fastForward(oid: string): Promise<void> {
+    return this.#serial(async () => {
+      await git.writeRef({ ...this.#repo(), ref: 'refs/heads/main', value: oid, force: true });
+      await git.checkout({ ...this.#repo(), ref: 'main', force: true });
+    });
+  }
+
+  /** Các file khác nhau giữa hai bản lưu: đường dẫn → mã nội dung ở bản `b` (null: đã xóa ở `b`). */
+  changedPaths(a: string, b: string): Promise<Map<string, string | null>> {
+    return this.#serial(async () => {
+      const out = new Map<string, string | null>();
+      await git.walk({
+        ...this.#repo(),
+        trees: [git.TREE({ ref: a }), git.TREE({ ref: b })],
+        map: async (filepath, [A, B]) => {
+          if (filepath === '.') return;
+          const [ta, tb] = [await A?.type(), await B?.type()];
+          if (ta === 'tree' || tb === 'tree') return;
+          const [oa, ob] = [await A?.oid(), await B?.oid()];
+          if (oa !== ob) out.set(filepath, ob ?? null);
+        },
+      });
+      return out;
+    });
+  }
+
+  /** Nội dung một đối tượng (file) theo mã. */
+  readBlob(oid: string): Promise<Uint8Array> {
+    return this.#serial(async () => (await git.readBlob({ ...this.#repo(), oid })).blob);
+  }
+
+  /** File có nằm trong bản lưu `commit` không (file quá lớn không vào bản lưu). */
+  hasPath(commit: string, filepath: string): Promise<boolean> {
+    return this.#serial(() =>
+      git.readBlob({ ...this.#repo(), oid: commit, filepath }).then(
+        () => true,
+        () => false,
+      ),
+    );
+  }
+
+  /** Ghi bản lưu gộp: trạng thái hiện tại của thư mục, với hai bản cha (của máy này và của máy kia). */
+  commitMerge(message: string, theirs: string): Promise<void> {
+    return this.#serial(async () => void (await this.#commitAll(message, theirs)));
   }
 
   snapshot(message: string): Promise<boolean> {
@@ -135,7 +232,12 @@ export class Snapshots {
   status(): Promise<ChangesResponse> {
     return this.#serial(async () => {
       const files = await this.#changed();
-      const commits = await git.log({ ...this.#repo(), depth: 30 }).catch(() => []);
+      // Bản gộp (đồng bộ hai máy) có hai nhánh: bỏ bản trùng, mới nhất trước.
+      const seen = new Set<string>();
+      const commits = (await git.log({ ...this.#repo(), depth: 60 }).catch(() => []))
+        .filter((c) => !seen.has(c.oid) && seen.add(c.oid))
+        .sort((a, b) => b.commit.author.timestamp - a.commit.author.timestamp)
+        .slice(0, 30);
       return {
         files,
         snapshots: commits.map((c) => ({
@@ -336,4 +438,29 @@ export class Snapshots {
       await writeFile(abs, blob);
     });
   }
+}
+
+/** Ghi các gói lịch sử vào kho rồi lập chỉ mục cho chúng. */
+async function writePacks(root: string, gitdir: string, packs: { name: string; data: Uint8Array }[]) {
+  const dir = path.join(gitdir, 'objects', 'pack');
+  await mkdir(dir, { recursive: true });
+  for (const p of packs) {
+    const file = path.join(dir, `pack-${p.name.replace(/[^\w.-]/g, '_').replace(/\.pack$/, '')}.pack`);
+    await writeFile(file, p.data);
+    await git.indexPack({ fs, dir: root, gitdir, filepath: path.relative(root, file) });
+  }
+}
+
+/**
+ * Dựng kho bản lưu cho thư mục vừa tải từ mây về (máy khác): nạp các gói lịch sử, đặt bản mới nhất
+ * và ghi các file của bản đó ra thư mục.
+ */
+export async function restoreHistory(root: string, packs: { name: string; data: Uint8Array }[], head: string): Promise<void> {
+  const gitdir = folderDataPath(root, 'history');
+  await mkdir(gitdir, { recursive: true });
+  await git.init({ fs, dir: root, gitdir, defaultBranch: 'main' });
+  await writePacks(root, gitdir, packs);
+  await git.writeRef({ fs, dir: root, gitdir, ref: 'refs/heads/main', value: head, force: true });
+  await writeFile(path.join(gitdir, 'ide-root'), root + '\n');
+  await git.checkout({ fs, dir: root, gitdir, ref: 'main', force: true });
 }

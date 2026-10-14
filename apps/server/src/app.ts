@@ -5,7 +5,7 @@ import path from 'node:path';
 import Fastify, { type FastifyRequest } from 'fastify';
 import websocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
-import type { FolderBusy, FolderSettings, ServerEvent, UpdateInfo } from '@ide/shared';
+import type { CloudProviderId, CloudStatus, FolderBusy, FolderSettings, ServerEvent, UpdateInfo } from '@ide/shared';
 import { AgentSession, type QueryFn, type SessionApi } from './agent.js';
 import { ArtifactStore, artifactTitle, artifactUrl, artifactsFromMessages, isDocsTool, linkTitle } from './artifacts.js';
 import { ClaudeAuth } from './claude-auth.js';
@@ -26,6 +26,9 @@ import { TurnNotifier, type AppNotification } from './notify.js';
 import { FolderLocks, folderLocks } from './folderLock.js';
 import { AutoSave } from './autoSave.js';
 import { ensureFolderData } from './folderData.js';
+import { CloudAccounts, type SecretBox } from './cloud/accounts.js';
+import { FolderSync, MANIFEST, cloneFolder, listRemoteFolders } from './cloud/sync.js';
+import { restoreHistory } from './snapshots.js';
 import { readDeviceSettings, readFolderSettings, writeDeviceSettings, writeFolderSettings } from './settings.js';
 import type { SummaryQueryFn } from './turnSummary.js';
 
@@ -68,6 +71,12 @@ export async function buildApp(
     newWindow?: () => Promise<boolean>;
     /** App desktop: đưa cửa sổ này lên trước (khi cửa sổ khác bấm "Chuyển tới cửa sổ đó"). */
     focusWindow?: () => void;
+    /** App desktop: mã hóa mã đăng nhập tài khoản đám mây bằng kho bảo mật của hệ điều hành. */
+    secrets?: SecretBox;
+    /** Ổ đám mây thử nghiệm (một thư mục trên máy); mặc định đọc từ biến IDE_FAKE_CLOUD_DIR. */
+    cloudLocalDir?: string;
+    /** Tên máy ghi vào bản đồng bộ (mặc định tên máy tính; test đặt tên để giả lập hai máy). */
+    cloudDevice?: string;
     /** Tóm tắt câu hỏi làm mô tả bản lưu tự động (test truyền bản giả). */
     summaryQueryFn?: SummaryQueryFn;
     /** Bộ khóa thư mục dùng chung giữa các cửa sổ (test truyền bộ riêng). */
@@ -208,9 +217,56 @@ export async function buildApp(
     snapshots,
     claudeBin: config.claudeBin,
     queryFn: opts.summaryQueryFn,
-    onSaved: () => broadcast({ type: 'changes-changed' }),
+    onSaved: () => {
+      broadcast({ type: 'changes-changed' });
+      syncAfterSave();
+    },
     onError: (err) => app.log.error(err),
   });
+  // ---------- Đồng bộ đám mây: mỗi khi có bản lưu mới, đẩy thư mục lên ổ đám mây (nếu đã bật) ----------
+  const cloudDir = path.join(path.dirname(config.statePath), 'cloud');
+  const accounts = new CloudAccounts({
+    dir: cloudDir,
+    secrets: opts.secrets,
+    localDriveDir: opts.cloudLocalDir ?? (process.env.IDE_FAKE_CLOUD_DIR || undefined),
+    onChange: () => void broadcastCloud(),
+  });
+  const folderSync = new FolderSync({
+    root: () => workspace.root,
+    drive: (id) => accounts.drive(id as CloudProviderId),
+    snapshots,
+    statePath: (folderId) => path.join(cloudDir, 'folders', `${folderId}.json`),
+    onStatus: () => void broadcastCloud(),
+    // Không lấy bản từ máy khác về khi Claude đang sửa file.
+    canPull: () => !agent.running,
+    device: opts.cloudDevice,
+  });
+  /** Đang tải một thư mục từ mây về (tiến độ hiện trong hộp thoại Mở thư mục). */
+  let cloning: CloudStatus['clone'];
+  // Lấy bản mới của máy khác: khi mở thư mục và mỗi 5 phút.
+  const pullIfSynced = () => {
+    if (readFolderSettings(workspace.root).cloud) void folderSync.pull();
+  };
+  const pullTimer = setInterval(pullIfSynced, 5 * 60_000);
+  pullTimer.unref();
+  app.addHook('onClose', async () => clearInterval(pullTimer));
+  setTimeout(pullIfSynced, 1500).unref();
+  async function cloudStatus(): Promise<CloudStatus> {
+    const cfg = readFolderSettings(workspace.root).cloud;
+    return {
+      providers: await accounts.providers(),
+      folder: cfg ? { provider: cfg.provider, remoteName: cfg.remoteName } : null,
+      sync: folderSync.status(),
+      ...(accounts.connecting ? { connecting: accounts.connecting } : {}),
+      ...(cloning ? { clone: cloning } : {}),
+    };
+  }
+  async function broadcastCloud() {
+    broadcast({ type: 'cloud', cloud: await cloudStatus() });
+  }
+  function syncAfterSave() {
+    if (readFolderSettings(workspace.root).cloud) void folderSync.push();
+  }
   const BUSY_HERE = 'Claude đang làm việc. Bấm dừng hoặc chờ Claude xong rồi mới chuyển.';
   const agent = new AgentSession({
     cwd: () => workspace.root,
@@ -362,6 +418,8 @@ export async function buildApp(
       await agent.clear();
       void openSnapshots(info.root);
       broadcastLock();
+      folderSync.reset();
+      pullIfSynced();
       return info;
     },
   );
@@ -457,6 +515,112 @@ export async function buildApp(
       return writeFolderSettings(workspace.root, req.body);
     },
   );
+  /** Đồng bộ đám mây: tài khoản trên máy này và trạng thái đồng bộ của thư mục đang mở. */
+  const providerSchema = { type: 'string', enum: ['onedrive', 'gdrive', 'local'] } as const;
+  app.get('/api/cloud', async () => cloudStatus());
+  app.post<{ Body: { provider: CloudProviderId } }>(
+    '/api/cloud/connect',
+    { schema: { body: { type: 'object', required: ['provider'], properties: { provider: providerSchema } } } },
+    async (req) => accounts.connect(req.body.provider),
+  );
+  app.post('/api/cloud/connect/cancel', async () => {
+    accounts.cancelConnect();
+    return { ok: true };
+  });
+  app.post<{ Body: { provider: CloudProviderId } }>(
+    '/api/cloud/disconnect',
+    { schema: { body: { type: 'object', required: ['provider'], properties: { provider: providerSchema } } } },
+    async (req) => {
+      await accounts.disconnect(req.body.provider);
+      return cloudStatus();
+    },
+  );
+  /** Bật đồng bộ thư mục đang mở lên một nhà cung cấp (đẩy lên ngay), hoặc tắt (dữ liệu trên ổ vẫn giữ). */
+  app.post<{ Body: { enabled: boolean; provider?: CloudProviderId } }>(
+    '/api/cloud/folder',
+    { schema: { body: { type: 'object', required: ['enabled'], properties: { enabled: { type: 'boolean' }, provider: providerSchema } } } },
+    async (req, reply) => {
+      const root = workspace.root;
+      if (!req.body.enabled) {
+        const { cloud: _off, ...rest } = readFolderSettings(root);
+        writeFolderSettings(root, rest, true);
+        folderSync.reset();
+        return cloudStatus();
+      }
+      const provider = req.body.provider ?? 'onedrive';
+      const drive = await accounts.drive(provider);
+      if (!drive) return reply.code(409).send({ error: 'Hãy kết nối tài khoản trước' });
+      if (!(await ensureFolderData(root))) return reply.code(409).send({ error: 'Thư mục này không ghi được' });
+      // Tên trên ổ: tên thư mục; đã có thư mục khác cùng tên thì thêm (2), (3)…
+      const base = path.basename(root).replace(/[\\/:*?"<>|]/g, '_').trim() || 'Thư mục';
+      const folderId = readFolderSettings(root).cloud?.folderId ?? randomUUID();
+      let remoteName = base;
+      for (let n = 2; n < 100; n++) {
+        const existing = await drive.read(`${remoteName}/${MANIFEST}`);
+        if (!existing || (JSON.parse(existing.data.toString('utf8')) as { folderId?: string }).folderId === folderId) break;
+        remoteName = `${base} (${n})`;
+      }
+      writeFolderSettings(root, { cloud: { provider, folderId, remoteName } });
+      void folderSync.push();
+      return cloudStatus();
+    },
+  );
+  /** Các thư mục đã đồng bộ trên ổ của một tài khoản (để tải về máy này). */
+  app.get<{ Querystring: { provider: CloudProviderId } }>(
+    '/api/cloud/folders',
+    { schema: { querystring: { type: 'object', required: ['provider'], properties: { provider: providerSchema } } } },
+    async (req, reply) => {
+      const drive = await accounts.drive(req.query.provider);
+      if (!drive) return reply.code(409).send({ error: 'Hãy kết nối tài khoản trước' });
+      return listRemoteFolders(drive);
+    },
+  );
+  /** Tải một thư mục từ ổ về `parent/<tên>` (rồi trang mở thư mục đó). */
+  app.post<{ Body: { provider: CloudProviderId; name: string; parent: string } }>(
+    '/api/cloud/clone',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['provider', 'name', 'parent'],
+          properties: { provider: providerSchema, name: { type: 'string', minLength: 1, maxLength: 255 }, parent: { type: 'string', minLength: 1, maxLength: 4096 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (cloning) return reply.code(409).send({ error: 'Đang tải một thư mục khác về' });
+      const drive = await accounts.drive(req.body.provider);
+      if (!drive) return reply.code(409).send({ error: 'Hãy kết nối tài khoản trước' });
+      const name = req.body.name;
+      if (/[\\/]|^\.\.?$/.test(name)) return reply.code(400).send({ error: 'Tên thư mục không hợp lệ' });
+      const parent = await validateWorkspaceDir(req.body.parent);
+      const target = path.join(parent, name);
+      cloning = { name, done: 0, total: 0 };
+      void broadcastCloud();
+      try {
+        await cloneFolder({
+          drive,
+          remoteName: name,
+          target,
+          statePath: (folderId) => path.join(cloudDir, 'folders', `${folderId}.json`),
+          restoreHistory,
+          onProgress: (done, total) => {
+            cloning = { name, done, total };
+            void broadcastCloud();
+          },
+        });
+      } finally {
+        cloning = undefined;
+        void broadcastCloud();
+      }
+      return { path: target };
+    },
+  );
+  app.post('/api/cloud/sync', async (_req, reply) => {
+    if (!readFolderSettings(workspace.root).cloud) return reply.code(409).send({ error: 'Thư mục này chưa bật đồng bộ' });
+    void folderSync.push();
+    return cloudStatus();
+  });
   app.get('/api/agent/lock', async () => ({ busyElsewhere: busyElsewhere() }));
   /** Chuyển tới cửa sổ đang có Claude làm việc trong thư mục này. */
   app.post('/api/agent/lock/focus', async (_req, reply) => {
@@ -592,6 +756,7 @@ export async function buildApp(
     async (req) => {
       const saved = await snapshots.snapshot(req.body.message ?? '');
       broadcast({ type: 'changes-changed' });
+      if (saved) syncAfterSave();
       return { saved };
     },
   );

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { AgentEvent, FolderBusy, PackInfo, PlanUsage, TreeResponse, UpdateInfo, WorkspaceInfo } from '@ide/shared';
+import type { AgentEvent, CloudStatus, FolderBusy, PackInfo, PlanUsage, TreeResponse, UpdateInfo, WorkspaceInfo } from '@ide/shared';
 import { api, connectEvents } from './client';
 
 type FileListener = () => void;
@@ -32,6 +32,9 @@ interface WorkspaceState {
   agentRunning: boolean;
   /** Claude ở cửa sổ khác đang làm trong thư mục trùng/cha/con: tạm khóa gửi tin nhắn. */
   busyElsewhere: FolderBusy | null;
+  /** Đồng bộ đám mây (tài khoản trên máy này, trạng thái của thư mục đang mở). */
+  cloud: CloudStatus | null;
+  setCloud: (c: CloudStatus) => void;
 }
 
 /** Bản chạy trên trình duyệt: thông báo của trình duyệt, chỉ khi không nhìn trang này; bấm vào thì quay lại trang. */
@@ -60,9 +63,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [agentRunning, setAgentRunning] = useState(false);
   const [busyElsewhere, setBusyElsewhere] = useState<FolderBusy | null>(null);
+  const [cloud, setCloud] = useState<CloudStatus | null>(null);
   useEffect(() => {
     api.packs().then(setPacks, () => setPacks([]));
     api.updateStatus().then(setUpdate, () => setUpdate(null));
+    api.cloud().then(setCloud, () => setCloud(null));
   }, []);
   const refreshUsage = useMemo(
     () => (force = false) => {
@@ -129,6 +134,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         }
         if (event.type === 'changes-changed') {
           setChangesRev((n) => n + 1);
+          return;
+        }
+        if (event.type === 'cloud') {
+          setCloud(event.cloud);
           return;
         }
         if (event.type === 'notify') {
@@ -211,8 +220,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       update,
       agentRunning,
       busyElsewhere,
+      cloud,
+      setCloud,
     }),
-    [info, tree, error, connected, sessionsRev, artifactsRev, changesRev, loadTree, planUsage, refreshUsage, packs, update, agentRunning, busyElsewhere],
+    [info, tree, error, connected, sessionsRev, artifactsRev, changesRev, loadTree, planUsage, refreshUsage, packs, update, agentRunning, busyElsewhere, cloud],
   );
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

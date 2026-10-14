@@ -1,6 +1,9 @@
 import type {
   AgentMode,
   FolderBusy,
+  CloudProviderId,
+  CloudStatus,
+  CloudRemoteFolder,
   FolderSettings,
   UpdateInfo,
   FolderContext,
@@ -106,6 +109,18 @@ export const api = {
   updateStatus: async () => (await request('/api/update')).json() as Promise<UpdateInfo>,
   checkUpdate: async () => (await request('/api/update/check', {})).json() as Promise<UpdateInfo>,
   installUpdate: async () => void (await request('/api/update/install', {})),
+  /** Đồng bộ đám mây. */
+  cloud: async () => (await request('/api/cloud')).json() as Promise<CloudStatus>,
+  cloudConnect: async (provider: CloudProviderId) => (await request('/api/cloud/connect', { provider })).json() as Promise<{ url?: string }>,
+  cloudCancelConnect: async () => void (await request('/api/cloud/connect/cancel', {})),
+  cloudDisconnect: async (provider: CloudProviderId) => (await request('/api/cloud/disconnect', { provider })).json() as Promise<CloudStatus>,
+  cloudFolder: async (enabled: boolean, provider?: CloudProviderId) =>
+    (await request('/api/cloud/folder', provider ? { enabled, provider } : { enabled })).json() as Promise<CloudStatus>,
+  cloudFolders: async (provider: CloudProviderId) =>
+    (await request(`/api/cloud/folders?provider=${provider}`)).json() as Promise<CloudRemoteFolder[]>,
+  cloudClone: async (provider: CloudProviderId, name: string, parent: string) =>
+    (await request('/api/cloud/clone', { provider, name, parent })).json() as Promise<{ path: string }>,
+  cloudSync: async () => (await request('/api/cloud/sync', {})).json() as Promise<CloudStatus>,
   /** Cài đặt của thư mục làm việc: tự lưu, lựa chọn của ô chat. */
   settings: async () => (await request('/api/settings')).json() as Promise<FolderSettings>,
   saveSettings: async (patch: Partial<FolderSettings>) => (await request('/api/settings', patch)).json() as Promise<FolderSettings>,
