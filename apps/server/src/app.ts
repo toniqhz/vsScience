@@ -24,6 +24,9 @@ import { buildTree } from './tree.js';
 import { WorkspaceManager, listDirs, validateWorkspaceDir } from './workspace.js';
 import { TurnNotifier, type AppNotification } from './notify.js';
 import { FolderLocks, folderLocks } from './folderLock.js';
+import { AutoSave } from './autoSave.js';
+import { readSettings, writeSettings } from './settings.js';
+import type { SummaryQueryFn } from './turnSummary.js';
 
 const ALLOWED_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -64,6 +67,8 @@ export async function buildApp(
     newWindow?: () => Promise<boolean>;
     /** App desktop: đưa cửa sổ này lên trước (khi cửa sổ khác bấm "Chuyển tới cửa sổ đó"). */
     focusWindow?: () => void;
+    /** Tóm tắt câu hỏi làm mô tả bản lưu tự động (test truyền bản giả). */
+    summaryQueryFn?: SummaryQueryFn;
     /** Bộ khóa thư mục dùng chung giữa các cửa sổ (test truyền bộ riêng). */
     folderLocks?: FolderLocks;
     /** Hiện file/thư mục trong trình quản lý file (app desktop dùng API của Electron). */
@@ -169,6 +174,13 @@ export async function buildApp(
   }
 
   const turnNotifier = new TurnNotifier(() => path.basename(workspace.root));
+  const settingsPath = path.join(path.dirname(config.statePath), 'settings.json');
+  // App desktop: thông báo của hệ điều hành. Trình duyệt: gửi cho trang tự hiện thông báo của trình duyệt.
+  const notifier = opts.notifier ?? {
+    enabled: () => readSettings(settingsPath).notifications,
+    setEnabled: (on: boolean) => void writeSettings(settingsPath, { notifications: on }),
+    notify: (n: AppNotification) => broadcast({ type: 'notify', title: n.title, body: n.body }),
+  };
   // Khóa thư mục khi Claude đang làm: cửa sổ khác cùng thư mục (hoặc thư mục cha/con) không gửi được tin nhắn.
   const locks = opts.folderLocks ?? folderLocks;
   const lockId = randomUUID();
@@ -189,6 +201,15 @@ export async function buildApp(
     unsubscribeLocks();
     locks.release(lockId);
   });
+  // Tự lưu khi Claude xong một việc đủ lớn (thay đổi đủ nhiều và đã làm trọn yêu cầu); mô tả là tóm tắt yêu cầu.
+  const autoSave = new AutoSave({
+    enabled: () => readSettings(settingsPath).autoSave,
+    snapshots,
+    claudeBin: config.claudeBin,
+    queryFn: opts.summaryQueryFn,
+    onSaved: () => broadcast({ type: 'changes-changed' }),
+    onError: (err) => app.log.error(err),
+  });
   const BUSY_HERE = 'Claude đang làm việc. Bấm dừng hoặc chờ Claude xong rồi mới chuyển.';
   const agent = new AgentSession({
     cwd: () => workspace.root,
@@ -196,8 +217,9 @@ export async function buildApp(
     emit: (event) => {
       broadcast({ type: 'agent', event });
       if (event.kind === 'status' && event.state === 'idle') locks.release(lockId);
+      autoSave.onEvent(event);
       const note = turnNotifier.next(event);
-      if (note && opts.notifier?.enabled()) opts.notifier.notify(note);
+      if (note && notifier.enabled()) notifier.notify(note);
       if (event.kind === 'status') claudeBusyUntil = event.state === 'running' ? Infinity : Date.now() + AFTER_TURN_MS;
       // Mỗi lượt dùng thêm hạn mức: lấy số liệu mới cho ô hạn mức.
       if (event.kind === 'result') void planUsage.get(true).then((usage) => usage && broadcast({ type: 'usage', usage }));
@@ -207,10 +229,8 @@ export async function buildApp(
     onArtifact: (input, output, cwd) => void recordArtifact(input, output, cwd).catch((err) => app.log.error(err)),
     onArtifactLink: (toolName, input, output, cwd) => void recordLink(toolName, input, output, cwd).catch((err) => app.log.error(err)),
     // Tự lưu bản trước mỗi lượt để có thể hoàn tác đúng phần Claude đã sửa.
-    beforeTurn: async (text) => {
-      const saved = await snapshots.snapshot(`Trước khi Claude làm: ${text.replace(/\s+/g, ' ').slice(0, 80)}`);
-      if (saved) broadcast({ type: 'changes-changed' });
-    },
+    // Lần tự lưu của lượt trước (đang đánh giá) phải xong trước, để không lẫn thay đổi của lượt mới.
+    beforeTurn: () => autoSave.idle(),
     profile: () => loadProfile(config.profileDir ?? null),
     searchDocuments: async (q, under) => formatForClaude(await searchWorkspace(q, under), q),
     scratchRoot: config.scratchDir,
@@ -406,6 +426,13 @@ export async function buildApp(
       return { ok: true };
     },
   );
+  /** Cài đặt chung (bật/tắt tự lưu). */
+  app.get('/api/settings', async () => readSettings(settingsPath));
+  app.post<{ Body: { autoSave?: boolean } }>(
+    '/api/settings',
+    { schema: { body: { type: 'object', properties: { autoSave: { type: 'boolean' } }, additionalProperties: false } } },
+    async (req) => writeSettings(settingsPath, req.body),
+  );
   app.get('/api/agent/lock', async () => ({ busyElsewhere: busyElsewhere() }));
   /** Chuyển tới cửa sổ đang có Claude làm việc trong thư mục này. */
   app.post('/api/agent/lock/focus', async (_req, reply) => {
@@ -437,14 +464,12 @@ export async function buildApp(
   }
   app.get('/api/update', async (_req, reply) => (updater ? updater.status() : reply.code(404).send({ error: 'Chỉ app desktop mới cập nhật được' })));
   app.post('/api/update/check', async (_req, reply) => (updater ? updater.check() : reply.code(404).send({ error: 'Chỉ app desktop mới cập nhật được' })));
-  /** Bật/tắt thông báo (chỉ app desktop; cài đặt chung cho mọi cửa sổ). */
-  const notifier = opts.notifier;
-  app.get('/api/notifications', async () => ({ supported: !!notifier, enabled: notifier?.enabled() ?? false }));
+  /** Bật/tắt thông báo (cài đặt chung cho mọi cửa sổ). */
+  app.get('/api/notifications', async () => ({ supported: true, enabled: notifier.enabled() }));
   app.post<{ Body: { enabled: boolean } }>(
     '/api/notifications',
     { schema: { body: { type: 'object', required: ['enabled'], properties: { enabled: { type: 'boolean' } } } } },
     async (req, reply) => {
-      if (!notifier) return reply.code(404).send({ error: 'Chỉ app desktop mới có thông báo' });
       notifier.setEnabled(req.body.enabled);
       return { supported: true, enabled: notifier.enabled() };
     },

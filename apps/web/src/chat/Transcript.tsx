@@ -3,13 +3,11 @@ import { connectorDetail, connectorTitle } from './connectors';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { FileChange } from '@ide/shared';
-import { useWorkspace } from '../api/workspace';
 import { baseName } from '../fileTypes';
-import { useWorkbench } from '../workbenchContext';
 import type { Item, LocalNode } from './agentStore';
 import { COMMANDS } from './commands';
 import { ContextCard } from './ContextMeter';
-import { parseDocLink } from './docLink';
+import { DocLinkAnchor } from './DocLinkAnchor';
 import { derivePlan, PLAN_TOOLS, type PlanStep } from './plan';
 import { stepIcon } from './PlanPanel';
 
@@ -73,35 +71,7 @@ function completeLines(text: string): string {
 }
 
 /** Link trong câu trả lời: link tới tài liệu trong thư mục (dẫn nguồn) mở đúng trang ở khung bên phải; link web mở trình duyệt. */
-function MarkdownLink({ children, href }: { children?: ReactNode; href?: string }) {
-  const { openPath } = useWorkbench();
-  const { info } = useWorkspace();
-  const doc = parseDocLink(href, info?.root);
-  if (!doc) {
-    return (
-      <a href={href} target="_blank" rel="noreferrer">
-        {children}
-      </a>
-    );
-  }
-  const where = doc.find?.page ? ` · trang ${doc.find.page}` : doc.find?.cell ? ` · ô ${doc.find.cell}` : '';
-  return (
-    <a
-      href="#"
-      className="doc-link"
-      title={`Mở ${doc.path}${where}${doc.find?.query ? ` · “${doc.find.query}”` : ''}`}
-      onClick={(e) => {
-        e.preventDefault();
-        openPath(doc.path, doc.find);
-      }}
-    >
-      <span className="codicon codicon-file" />
-      {children}
-    </a>
-  );
-}
-
-const MARKDOWN_COMPONENTS = { a: MarkdownLink };
+const MARKDOWN_COMPONENTS = { a: DocLinkAnchor };
 
 /**
  * Tách câu trả lời thành các khối Markdown cấp cao nhất (đoạn văn, danh sách, bảng, khối mã…) theo dòng trống,

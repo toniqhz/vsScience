@@ -5,6 +5,7 @@ import type { FileKind, FindTarget } from '@ide/shared';
 import { api } from '../api/client';
 import { useWorkspace } from '../api/workspace';
 import { FILE_KIND_META } from '../fileTypes';
+import { DocLinkAnchor } from '../chat/DocLinkAnchor';
 import { FindBar, useDomFind } from './find';
 
 /**
@@ -40,6 +41,8 @@ export function TextViewer({ path, kind, find }: { path: string; kind: FileKind;
   }, [path, reloadKey]);
 
   const meta = FILE_KIND_META[kind];
+  /** Thư mục chứa file: link tương đối trong ghi chú tính từ đây (ví dụ ../Sách/x.pdf). */
+  const baseDir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
   const canToggle = kind === 'markdown' || kind === 'html';
   return (
     <div className="text-viewer" ref={rootRef}>
@@ -67,7 +70,7 @@ export function TextViewer({ path, kind, find }: { path: string; kind: FileKind;
         ) : kind === 'markdown' && !source ? (
           <div className="text-viewer-body" ref={bodyRef}>
             <div className="msg-assistant text-viewer-md">
-              <Markdown remarkPlugins={[remarkGfm]} components={{ a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer">{children}</a> }}>
+              <Markdown remarkPlugins={[remarkGfm]} components={{ a: ({ children, href }) => <DocLinkAnchor href={href} baseDir={baseDir}>{children}</DocLinkAnchor> }}>
                 {text}
               </Markdown>
             </div>

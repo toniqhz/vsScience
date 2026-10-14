@@ -34,6 +34,17 @@ interface WorkspaceState {
   busyElsewhere: FolderBusy | null;
 }
 
+/** Bản chạy trên trình duyệt: thông báo của trình duyệt, chỉ khi không nhìn trang này; bấm vào thì quay lại trang. */
+function showBrowserNotification(title: string, body: string) {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  if (!document.hidden && document.hasFocus()) return;
+  const n = new Notification(title, { body, tag: 'vsscience' });
+  n.onclick = () => {
+    window.focus();
+    n.close();
+  };
+}
+
 const WorkspaceContext = createContext<WorkspaceState | null>(null);
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
@@ -118,6 +129,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         }
         if (event.type === 'changes-changed') {
           setChangesRev((n) => n + 1);
+          return;
+        }
+        if (event.type === 'notify') {
+          showBrowserNotification(event.title, event.body);
           return;
         }
         if (event.type === 'lock') {

@@ -5,8 +5,16 @@ import type { FindTarget } from '@ide/shared';
  *   [Giáo trình, tr. 45](<Sách/Giáo trình Sinh 11.pdf#page=45&q=pha sáng>)
  * Bấm vào: mở file ở khung bên phải, tới đúng trang/slide/ô và tô cụm từ `q`.
  * Trả về null với link web (http, mailto…) hoặc đường dẫn ra ngoài thư mục làm việc.
+ *
+ * `baseDir`: link nằm trong một file (ghi chú .md trong thư mục con) thì đường dẫn tương đối tính từ thư mục
+ * của file đó, ví dụ `../Sách/x.pdf`; nếu không có file ở đó mà có ở gốc thư mục làm việc thì lấy ở gốc.
+ * `exists`: kiểm tra file có trong thư mục làm việc không (để chọn giữa hai cách hiểu trên).
  */
-export function parseDocLink(href: string | undefined, root: string | undefined): { path: string; find?: Omit<FindTarget, 'nonce'> } | null {
+export function parseDocLink(
+  href: string | undefined,
+  root: string | undefined,
+  opts: { baseDir?: string; exists?: (path: string) => boolean } = {},
+): { path: string; find?: Omit<FindTarget, 'nonce'> } | null {
   if (!href) return null;
   let raw = href.trim();
   if (/^file:\/\//i.test(raw)) raw = raw.replace(/^file:\/\/(localhost)?/i, '');
@@ -30,7 +38,15 @@ export function parseDocLink(href: string | undefined, root: string | undefined)
     if (!r || !cmp(p).startsWith(`${cmp(r)}/`)) return null;
     p = p.slice(r.length + 1);
   }
-  if (p.split('/').includes('..')) return null;
+  let resolved: string | null;
+  if (isAbs) resolved = normalizeRel(p);
+  else {
+    const fromBase = opts.baseDir ? normalizeRel(`${opts.baseDir}/${p}`) : null;
+    const fromRoot = normalizeRel(p);
+    resolved = [fromBase, fromRoot].find((c) => c && opts.exists?.(c)) ?? fromBase ?? fromRoot;
+  }
+  if (!resolved) return null;
+  p = resolved;
 
   const params = new URLSearchParams(frag.replace(/^\?/, ''));
   const num = (k: string) => {
@@ -50,4 +66,17 @@ export function parseDocLink(href: string | undefined, root: string | undefined)
   };
   const hasTarget = query || page || cellMatch || row;
   return { path: p, ...(hasTarget ? { find } : {}) };
+}
+
+/** Gộp `.` và `..` trong đường dẫn tương đối; null nếu đi ra ngoài thư mục làm việc. */
+function normalizeRel(p: string): string | null {
+  const out: string[] = [];
+  for (const seg of p.split('/')) {
+    if (!seg || seg === '.') continue;
+    if (seg === '..') {
+      if (!out.length) return null;
+      out.pop();
+    } else out.push(seg);
+  }
+  return out.length ? out.join('/') : null;
 }

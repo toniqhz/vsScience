@@ -162,13 +162,25 @@ function Workbench() {
   const [updateOpen, setUpdateOpen] = useState(false);
   const [settingsMenu, setSettingsMenu] = useState<{ x: number; y: number } | null>(null);
   const [notifications, setNotifications] = useState<{ supported: boolean; enabled: boolean } | null>(null);
+  const [autoSave, setAutoSave] = useState<boolean | null>(null);
   // Đọc lúc mở app và mỗi lần mở menu: cài đặt dùng chung với các cửa sổ khác.
   useEffect(() => {
     api.notifications().then(setNotifications, () => {});
+    api.settings().then((s) => setAutoSave(s.autoSave), () => {});
   }, [settingsMenu]);
-  const toggleNotifications = () => {
+  const toggleAutoSave = () => {
+    if (autoSave === null) return;
+    const next = !autoSave;
+    setAutoSave(next);
+    api.saveSettings({ autoSave: next }).then((s) => setAutoSave(s.autoSave), () => setAutoSave(!next));
+  };
+  const toggleNotifications = async () => {
     if (!notifications) return;
     const next = !notifications.enabled;
+    // Trình duyệt: bật lên thì xin quyền hiện thông báo (app desktop không cần).
+    if (next && !IS_DESKTOP && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      await Notification.requestPermission().catch(() => 'denied');
+    }
     setNotifications({ ...notifications, enabled: next });
     api.setNotifications(next).then(setNotifications, () => setNotifications(notifications));
   };
@@ -344,13 +356,20 @@ function Workbench() {
               ? [{ label: 'Cửa sổ mới…', icon: 'codicon-empty-window', hint: NEW_WINDOW_KEYS, onClick: () => void api.newWindow().catch(() => {}) }, 'separator' as const]
               : []),
             { label: 'Bối cảnh thư mục…', icon: 'codicon-note', onClick: () => setContextOpen(true) },
+            ...(autoSave !== null
+              ? [{ label: 'Tự lưu khi Claude xong việc', icon: 'codicon-save', checked: autoSave, onClick: toggleAutoSave }]
+              : []),
             ...(notifications?.supported
               ? [
                   {
                     label: 'Thông báo khi Claude xong hoặc hỏi',
                     icon: notifications.enabled ? 'codicon-bell' : 'codicon-bell-slash',
                     checked: notifications.enabled,
-                    onClick: toggleNotifications,
+                    hint:
+                      !IS_DESKTOP && notifications.enabled && typeof Notification !== 'undefined' && Notification.permission === 'denied'
+                        ? 'Trình duyệt đang chặn'
+                        : undefined,
+                    onClick: () => void toggleNotifications(),
                   },
                 ]
               : []),

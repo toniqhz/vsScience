@@ -260,7 +260,9 @@ export type ServerEvent =
   | { type: 'pack'; pack: PackInfo }
   | { type: 'update'; update: UpdateInfo }
   /** Claude ở cửa sổ khác đang làm trong thư mục trùng/lồng với thư mục này (null: không có). */
-  | { type: 'lock'; busyElsewhere: FolderBusy | null };
+  | { type: 'lock'; busyElsewhere: FolderBusy | null }
+  /** Bản chạy trên trình duyệt: trang tự hiện thông báo của trình duyệt (app desktop dùng thông báo của hệ điều hành). */
+  | { type: 'notify'; title: string; body: string };
 
 /** Cửa sổ khác đang có Claude làm việc trong thư mục trùng, cha hoặc con của thư mục đang mở. */
 export interface FolderBusy {

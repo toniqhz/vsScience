@@ -190,6 +190,8 @@ async function createWindow(dir?: string) {
 
   // Link ra ngoài (đăng nhập claude.ai, link trong câu trả lời) mở bằng trình duyệt mặc định.
   win.webContents.setWindowOpenHandler(({ url: target }) => {
+    // Địa chỉ của chính server app (link tương đối bị hiểu nhầm…) không bao giờ mở ra trình duyệt.
+    if (target.startsWith('http://127.0.0.1:') || target.startsWith('http://localhost:')) return { action: 'deny' };
     if (/^https?:\/\//.test(target)) void shell.openExternal(target);
     return { action: 'deny' };
   });
