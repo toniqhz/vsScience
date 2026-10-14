@@ -13,7 +13,18 @@ function viDate(d: string): string {
  * Trang "Có gì mới": sau khi cập nhật, các tính năng mới từ bản người dùng dùng trước đó (`from`) tới bản
  * đang chạy (`to`). Mở từ menu Cài đặt (không có `from`) thì hiện vài bản gần nhất.
  */
-export function WhatsNewDialog({ from, to, onClose }: { from?: string | null; to?: string | null; onClose: () => void }) {
+export function WhatsNewDialog({
+  from,
+  to,
+  fromUnknown,
+  onClose,
+}: {
+  from?: string | null;
+  to?: string | null;
+  /** Không biết bản dùng trước đó (cập nhật từ bản cũ chưa ghi nhớ): chỉ hiện phần mới của bản đang chạy. */
+  fromUnknown?: boolean;
+  onClose: () => void;
+}) {
   const notes = from && to ? notesBetween(from, to) : (to ? notesBetween('0', to) : RELEASE_NOTES).slice(0, 4);
   const latest = to ?? notes[0]?.version;
 
@@ -31,7 +42,11 @@ export function WhatsNewDialog({ from, to, onClose }: { from?: string | null; to
           <div>
             <div className="whats-new-title">{from ? `Đã cập nhật lên VsScience ${latest}` : 'Có gì mới trong VsScience'}</div>
             <div className="whats-new-sub">
-              {from ? `Những gì mới kể từ bản ${from} bạn dùng trước đó` : `Các bản cập nhật gần đây${latest ? ` · đang dùng ${latest}` : ''}`}
+              {fromUnknown
+                ? 'Những gì mới trong bản này'
+                : from
+                  ? `Những gì mới kể từ bản ${from} bạn dùng trước đó`
+                  : `Các bản cập nhật gần đây${latest ? ` · đang dùng ${latest}` : ''}`}
             </div>
           </div>
           <button className="icon-btn" title="Đóng (Esc)" onClick={onClose}>

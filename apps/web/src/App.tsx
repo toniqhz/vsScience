@@ -17,7 +17,7 @@ import { ContextMenu } from './ContextMenu';
 import { IS_DESKTOP, NEW_WINDOW_KEYS } from './platform';
 import { UpdateDialog, updateSummary } from './UpdateDialog';
 import { WhatsNewDialog } from './WhatsNewDialog';
-import { compareVersions, notesBetween } from './whatsNew';
+import { RELEASE_NOTES, compareVersions, notesBetween } from './whatsNew';
 import { cloudBadge } from './sidebar/CloudDialog';
 import { SearchView } from './sidebar/SearchView';
 import { SessionsView } from './sidebar/SessionsView';
@@ -80,7 +80,7 @@ function ActivityBar({
         >
           <span className={`codicon ${v.icon}`} />
           {v.id === 'changes' && changeCount > 0 && <span className="activity-badge">{changeCount > 99 ? '99+' : changeCount}</span>}
-          {v.id === 'changes' && badge.tone && <span className={`codicon codicon-cloud activity-cloud ${badge.tone}`} title={badge.title} />}
+          {v.id === 'changes' && badge.connected && <span className={`codicon codicon-cloud activity-cloud ${badge.tone}`} title={badge.title} />}
         </button>
       ))}
       <div className="activity-spacer" />
@@ -167,14 +167,24 @@ function Workbench() {
   const [contextOpen, setContextOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
   /** Trang "Có gì mới": tự mở sau khi cập nhật (from = bản dùng trước đó), hoặc mở từ menu Cài đặt. */
-  const [whatsNew, setWhatsNew] = useState<{ from: string | null; to: string | null } | null>(null);
+  const [whatsNew, setWhatsNew] = useState<{ from: string | null; to: string | null; fromUnknown?: boolean } | null>(null);
   useEffect(() => {
     api.whatsNew().then(
-      ({ current, lastSeen }) => {
+      ({ current, lastSeen, usedBefore }) => {
         if (!current) return;
-        // Lần đầu cài: chỉ ghi nhớ bản đang dùng. Vừa cập nhật lên bản mới hơn: hiện những gì mới ở giữa.
-        if (lastSeen && compareVersions(current, lastSeen) > 0 && notesBetween(lastSeen, current).length) setWhatsNew({ from: lastSeen, to: current });
-        else if (lastSeen !== current) void api.whatsNewSeen(current).catch(() => {});
+        // Vừa cập nhật lên bản mới hơn: hiện những gì mới ở giữa.
+        if (lastSeen && compareVersions(current, lastSeen) > 0 && notesBetween(lastSeen, current).length) {
+          setWhatsNew({ from: lastSeen, to: current });
+          return;
+        }
+        // Cập nhật từ bản cũ chưa ghi nhớ "bản đã xem" (trước 0.1.16): hiện phần mới của bản đang chạy.
+        const previous = RELEASE_NOTES.find((n) => compareVersions(n.version, current) < 0)?.version;
+        if (!lastSeen && usedBefore && previous && notesBetween(previous, current).length) {
+          setWhatsNew({ from: previous, to: current, fromUnknown: true });
+          return;
+        }
+        // Cài lần đầu (hoặc đã xem): chỉ ghi nhớ bản đang dùng.
+        if (lastSeen !== current) void api.whatsNewSeen(current).catch(() => {});
       },
       () => {},
     );
@@ -369,7 +379,7 @@ function Workbench() {
       </div>
       {contextOpen && <FolderContextDialog onClose={() => setContextOpen(false)} />}
       {updateOpen && <UpdateDialog onClose={() => setUpdateOpen(false)} />}
-      {whatsNew && <WhatsNewDialog from={whatsNew.from} to={whatsNew.to} onClose={closeWhatsNew} />}
+      {whatsNew && <WhatsNewDialog from={whatsNew.from} to={whatsNew.to} fromUnknown={whatsNew.fromUnknown} onClose={closeWhatsNew} />}
       {settingsMenu && (
         <ContextMenu
           x={settingsMenu.x}

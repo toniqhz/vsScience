@@ -104,6 +104,8 @@ export async function buildApp(
   } = {},
 ) {
   const app = Fastify({ logger: opts.logger ?? false });
+  /** Máy đã dùng app trước lần chạy này (có state.json): phân biệt "vừa cập nhật từ bản cũ" với "cài lần đầu". */
+  const usedBefore = existsSync(config.statePath);
   const expectedToken = Buffer.from(config.token);
   const sockets = new Set<{ send(data: string): void }>();
 
@@ -669,6 +671,8 @@ export async function buildApp(
   app.get('/api/whatsnew', async () => ({
     current: updater?.status().current ?? null,
     lastSeen: readDeviceSettings(settingsPath).lastSeenVersion ?? null,
+    // Bản cũ (trước 0.1.16) chưa ghi "bản đã xem": có dữ liệu cũ mà chưa có bản đã xem là vừa cập nhật.
+    usedBefore,
   }));
   app.post<{ Body: { version: string } }>(
     '/api/whatsnew/seen',

@@ -8,14 +8,20 @@ import { timeAgo } from '../format';
  * Biểu tượng và dòng mô tả trạng thái đồng bộ của thư mục đang mở. tone: '' chưa bật (xám); is-on đã kết nối và
  * bật đồng bộ (vàng); is-busy đang tải lên (vàng, nhấp nháy); is-warn có lỗi / máy khác có bản mới hơn (chấm đỏ).
  */
-export function cloudBadge(cloud: CloudStatus | null): { icon: string; title: string; tone: '' | 'is-on' | 'is-busy' | 'is-warn' } {
-  if (!cloud?.folder) return { icon: 'codicon-cloud', title: 'Đồng bộ đám mây (chưa bật)', tone: '' };
+export function cloudBadge(cloud: CloudStatus | null): {
+  icon: string;
+  title: string;
+  tone: '' | 'is-on' | 'is-busy' | 'is-warn';
+  /** Máy này đã kết nối tài khoản của nhà cung cấp mà thư mục đồng bộ lên. */
+  connected: boolean;
+} {
+  if (!cloud?.folder) return { icon: 'codicon-cloud', title: 'Đồng bộ đám mây (chưa bật)', tone: '', connected: false };
   const s = cloud.sync;
   const provider = cloud.providers.find((p) => p.id === cloud.folder!.provider);
-  if (!provider?.account) return { icon: 'codicon-cloud', title: `Máy này chưa kết nối ${provider?.name ?? 'tài khoản đám mây'}`, tone: 'is-warn' };
-  if (s.state === 'syncing') return { icon: 'codicon-cloud-upload', title: syncLine(s), tone: 'is-busy' };
-  if (s.state === 'error' || s.state === 'behind') return { icon: 'codicon-cloud', title: syncLine(s), tone: 'is-warn' };
-  return { icon: 'codicon-cloud', title: `${provider.name}: ${syncLine(s)}`, tone: 'is-on' };
+  if (!provider?.account) return { icon: 'codicon-cloud', title: `Máy này chưa kết nối ${provider?.name ?? 'tài khoản đám mây'}`, tone: 'is-warn', connected: false };
+  if (s.state === 'syncing') return { icon: 'codicon-cloud-upload', title: syncLine(s), tone: 'is-busy', connected: true };
+  if (s.state === 'error' || s.state === 'behind') return { icon: 'codicon-cloud', title: syncLine(s), tone: 'is-warn', connected: true };
+  return { icon: 'codicon-cloud', title: `${provider.name}: ${syncLine(s)}`, tone: 'is-on', connected: true };
 }
 
 function syncLine(s: CloudFolderStatus): string {

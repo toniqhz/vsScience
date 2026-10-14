@@ -110,7 +110,8 @@ export const api = {
   checkUpdate: async () => (await request('/api/update/check', {})).json() as Promise<UpdateInfo>,
   installUpdate: async () => void (await request('/api/update/install', {})),
   /** "Có gì mới" sau khi cập nhật: bản đang chạy và bản đã xem trên máy này. */
-  whatsNew: async () => (await request('/api/whatsnew')).json() as Promise<{ current: string | null; lastSeen: string | null }>,
+  whatsNew: async () =>
+    (await request('/api/whatsnew')).json() as Promise<{ current: string | null; lastSeen: string | null; usedBefore?: boolean }>,
   whatsNewSeen: async (version: string) => void (await request('/api/whatsnew/seen', { version })),
   /** Đồng bộ đám mây. */
   cloud: async () => (await request('/api/cloud')).json() as Promise<CloudStatus>,
