@@ -40,6 +40,15 @@ export interface AgentQuery extends AsyncIterable<SDKMessage> {
   getContextUsage(): Promise<{ totalTokens: number; maxTokens: number; percentage: number; categories: { name: string; tokens: number; kind: string }[] }>;
   mcpServerStatus?(): Promise<McpServerStatus[]>;
   reconnectMcpServer?(serverName: string): Promise<void>;
+  /**
+   * Bật/tắt Remote Control cho phiên đang chạy (lệnh điều khiển `remote_control` của Claude Code — cách VS Code
+   * bật cho phiên do chương trình điều khiển). Có trong SDK nhưng chưa nằm trong khai báo kiểu công khai.
+   */
+  enableRemoteControl?(enabled: boolean, name?: string): Promise<Record<string, unknown> | undefined>;
+  /** Claude Code đã khởi động xong (đã nạp hội thoại tiếp tục). */
+  initializationResult?(): Promise<unknown>;
+  /** Đổi tên phiên đang chạy (cả phiên Remote Control trên claude.ai). */
+  renameSession?(title: string, sessionId?: string): Promise<void>;
   close(): void;
 }
 
@@ -185,7 +194,11 @@ export interface AgentSettings {
   model: string;
   effort: EffortLevel | null;
   mode: AgentMode;
+  /** Remote Control: phiên hiện trên claude.ai/code và app Claude trên điện thoại để điều khiển từ xa. */
+  remote?: boolean;
 }
+
+
 
 const MODE_TO_PERMISSION: Record<AgentMode, PermissionMode> = {
   ask: 'default',
@@ -457,6 +470,8 @@ export class AgentSession {
   #cwd: string | null = null;
   #running = false;
   #store: FolderSessionStore | null = null;
+  /** Người dùng bật Remote Control (giữ qua các lần phiên khởi động lại). */
+  #remoteOn = false;
   #messages = new Map<string, MessageState>();
   #streamingMessageId: string | null = null;
   #pending = new Map<string, { resolve: (r: PermissionResult) => void; input: Record<string, unknown>; suggestions?: PermissionUpdate[] }>();
@@ -527,7 +542,8 @@ export class AgentSession {
     return r && !r.startsWith('..') && !path.isAbsolute(r) ? r.split(path.sep).join('/') : p;
   };
 
-  async send(text: string, files: string[], settings: AgentSettings) {
+  /** Phiên Claude đang chạy với các lựa chọn `settings` (khởi động lại khi cần). */
+  async #ensure(settings: AgentSettings) {
     const cwd = this.opts.cwd();
     // Cài thêm gói thư viện thì khởi động lại phiên (tiếp tục đúng hội thoại) để Claude thấy thư viện mới.
     const needsRestart =
@@ -543,6 +559,54 @@ export class AgentSession {
       if (this.#applied.mode !== settings.mode) await this.#query.setPermissionMode(MODE_TO_PERMISSION[settings.mode]);
       this.#applied = settings;
     }
+  }
+
+  /** Remote Control đang bật cho phiên đang chạy. */
+  get remote(): boolean {
+    return !!this.#query && this.#remoteOn;
+  }
+
+  /**
+   * Bật/tắt Remote Control ngay (không cần nhắn trước): bật thì chạy phiên (nếu chưa) rồi mở Remote Control để
+   * điều khiển từ claude.ai/code hoặc app Claude; tắt thì đóng Remote Control, phiên vẫn chạy trên máy.
+   * Trả về thông tin Claude Code báo lại (mã phiên trên claude.ai…).
+   */
+  async setRemote(settings: AgentSettings): Promise<Record<string, unknown> | undefined> {
+    if (this.#running) throw new Error('Claude đang làm việc — chờ xong rồi mới đổi chế độ điều khiển');
+    if (settings.remote) await this.#ensure(settings);
+    else if (!this.#query) {
+      this.#remoteOn = false;
+      return undefined;
+    }
+    return this.#applyRemote(!!settings.remote);
+  }
+
+  async #applyRemote(on: boolean): Promise<Record<string, unknown> | undefined> {
+    const q = this.#query;
+    if (!q) return undefined;
+    if (!q.enableRemoteControl) throw new Error('Bản Claude Code đi kèm app chưa hỗ trợ Remote Control');
+    // Chờ Claude Code khởi động xong (đã nạp hội thoại tiếp tục) để lịch sử chat lên claude.ai cùng phiên.
+    await q.initializationResult?.().catch(() => {});
+    const info = await q.enableRemoteControl(on, on ? await this.#title() : undefined);
+    this.#remoteOn = on;
+    return info;
+  }
+
+  /** Tên đoạn chat hiện tại (như trong danh sách Phiên Claude); đoạn chat mới chưa có tên thì để Claude tự đặt. */
+  async #title(): Promise<string | undefined> {
+    if (!this.#sessionId) return undefined;
+    const list = await this.listSessions().catch(() => []);
+    return list.find((s) => s.id === this.#sessionId)?.title || undefined;
+  }
+
+  /** Remote Control đang bật mà phiên vừa dừng (mở đoạn chat khác, tạo đoạn chat mới): chạy lại ngay để điều khiển từ xa tiếp. */
+  async #restartForRemote() {
+    if (this.#remoteOn && this.#applied && !this.#query) await this.#ensure(this.#applied);
+  }
+
+  async send(text: string, files: string[], settings: AgentSettings) {
+    await this.#ensure(settings);
+    if (!!settings.remote !== this.#remoteOn) await this.#applyRemote(!!settings.remote).catch(() => {});
 
     await this.opts.beforeTurn?.(text).catch(() => {});
     const prompt = files.length ? `${text}${FILES_MARKER}${files.map((f) => `- ${f}`).join('\n')}` : text;
@@ -673,6 +737,7 @@ export class AgentSession {
     this.#toolInputs.clear();
     this.opts.emit({ kind: 'cleared' });
     this.opts.onSessionsChanged?.();
+    await this.#restartForRemote();
   }
 
   /** Nội dung mọi phiên của thư mục làm việc (để lấy lại các file Claude từng tạo). */
@@ -743,11 +808,14 @@ export class AgentSession {
       this.#messages.clear();
     }
     this.opts.replay?.(this.#log);
+    await this.#restartForRemote();
     this.opts.onSessionsChanged?.();
   }
 
   async renameSession(id: string, title: string) {
     await this.#sessions.rename(id, title, this.opts.cwd());
+    // Đang điều khiển từ xa đúng đoạn chat này: đổi luôn tên phiên trên claude.ai.
+    if (this.#remoteOn && id === this.#sessionId) await this.#query?.renameSession?.(title).catch(() => {});
     this.opts.onSessionsChanged?.();
   }
 
@@ -869,6 +937,7 @@ export class AgentSession {
       },
       ...(this.#sessionId ? { resume: this.#sessionId } : {}),
       ...(this.#store ? { sessionStore: this.#store } : {}),
+
     };
 
     const q = (this.opts.queryFn ?? (sdkQuery as unknown as QueryFn))({ prompt: input, options });
@@ -878,6 +947,8 @@ export class AgentSession {
     this.#cwd = cwd;
     this.#runtime = runtimeKey();
     void this.#pump(q);
+    // Phiên khởi động lại (đổi mức suy nghĩ, cài thêm thư viện…) khi Remote Control đang bật: bật lại.
+    if (this.#remoteOn) void this.#applyRemote(true).catch(() => {});
   }
 
   async #pump(q: AgentQuery) {

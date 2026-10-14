@@ -2,6 +2,12 @@
 
 Mỗi phiên bản là một mục `## <phiên bản> — <ngày>`. App hiện các mục này sau khi cập nhật (từ bản người dùng đang dùng lên bản mới), và workflow phát hành chép mục của phiên bản vào trang Release trên GitHub. Viết cho người dùng: nói việc họ làm được, không nói chuyện kỹ thuật.
 
+## 0.1.17 — 2026-10-14
+
+- **Điều khiển từ xa (Remote Control)**: nút **Local / Remote Control** trong ô chat, cạnh tên model. Bật lên thì đoạn chat hiện trên **claude.ai/code** và **app Claude trên điện thoại** (mang tên đoạn chat, kèm lịch sử) để nhắn tiếp khi không ngồi ở máy — Claude vẫn làm việc trên máy tính, với tài liệu trong thư mục. Mỗi thư mục nhớ lựa chọn riêng.
+- Trang **Có gì mới** tự hiện lần đầu mở app sau khi cập nhật (kể cả khi cập nhật từ bản 0.1.15 trở về trước).
+- Biểu tượng đám mây ở thanh bên trái chỉ hiện khi máy đã kết nối tài khoản đám mây.
+
 ## 0.1.16 — 2026-10-14
 
 ### Đồng bộ thư mục với OneDrive

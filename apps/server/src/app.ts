@@ -429,7 +429,7 @@ export async function buildApp(
   // ---------- Trợ lý (Agent SDK) ----------
   const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
   app.post<{
-    Body: { text: string; files: string[]; model: string; effort: string | null; mode: 'ask' | 'auto' | 'plan' | 'lazy' };
+    Body: { text: string; files: string[]; model: string; effort: string | null; mode: 'ask' | 'auto' | 'plan' | 'lazy'; remote?: boolean };
   }>(
     '/api/agent/message',
     {
@@ -443,12 +443,13 @@ export async function buildApp(
             model: { type: 'string', pattern: '^claude-[a-z0-9-]+$', maxLength: 64 },
             effort: { anyOf: [{ type: 'string', enum: EFFORTS }, { type: 'null' }] },
             mode: { type: 'string', enum: ['ask', 'auto', 'plan', 'lazy'] },
+            remote: { type: 'boolean' },
           },
         },
       },
     },
     async (req, reply) => {
-      const { text, files, model, effort, mode } = req.body;
+      const { text, files, model, effort, mode, remote } = req.body;
       const other = locks.acquire({ id: lockId, root: workspace.root, focus: opts.focusWindow });
       if (other) {
         broadcastLock();
@@ -457,12 +458,39 @@ export async function buildApp(
         });
       }
       try {
-        await agent.send(text, files, { model, effort: (effort as never) ?? null, mode });
+        await agent.send(text, files, { model, effort: (effort as never) ?? null, mode, remote: !!remote });
       } catch (err) {
         if (!agent.running) locks.release(lockId);
         throw err;
       }
       return { ok: true };
+    },
+  );
+  /** Bật/tắt Remote Control (điều khiển phiên từ claude.ai/code hoặc app Claude trên điện thoại). */
+  app.post<{ Body: { model: string; effort: string | null; mode: 'ask' | 'auto' | 'plan' | 'lazy'; remote: boolean } }>(
+    '/api/agent/remote',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['model', 'mode', 'remote'],
+          properties: {
+            model: { type: 'string', pattern: '^claude-[a-z0-9-]+$', maxLength: 64 },
+            effort: { anyOf: [{ type: 'string', enum: EFFORTS }, { type: 'null' }] },
+            mode: { type: 'string', enum: ['ask', 'auto', 'plan', 'lazy'] },
+            remote: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const { model, effort, mode, remote } = req.body;
+      try {
+        const info = await agent.setRemote({ model, effort: (effort as never) ?? null, mode, remote });
+        return { remote: agent.remote, info: info ?? null };
+      } catch (err) {
+        return reply.code(409).send({ error: (err as Error).message });
+      }
     },
   );
   app.post('/api/agent/interrupt', async () => {
@@ -506,6 +534,7 @@ export async function buildApp(
                 model: { type: 'string', maxLength: 100 },
                 effort: { type: ['string', 'null'], maxLength: 20 },
                 mode: { type: 'string', enum: ['ask', 'auto', 'plan', 'lazy'] },
+                remote: { type: 'boolean' },
               },
             },
           },

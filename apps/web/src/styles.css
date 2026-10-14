@@ -4271,3 +4271,18 @@ a.btn {
   padding: 20px 0;
   color: var(--text-muted);
 }
+
+/* Nút Remote Control / Local trong ô chat */
+.composer-chip.remote-chip {
+  background: var(--bg-input);
+  color: var(--text-muted);
+}
+
+.composer-chip.remote-chip.is-on {
+  background: #4b5fc2;
+  color: #fff;
+}
+
+button.composer-chip.remote-chip.is-on:hover {
+  background: #5a6ed6;
+}

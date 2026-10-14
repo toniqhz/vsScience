@@ -27,9 +27,9 @@ type Handler = (user: SDKUserMessage, options: Options) => AsyncGenerator<SDKMes
 
 /** Phiên Agent SDK giả: với mỗi tin nhắn người dùng, phát lại kịch bản tin nhắn của handler. */
 function fakeQueryFn(handler: Handler) {
-  const created: { options: Options; closed: boolean; models: string[]; modes: string[] }[] = [];
+  const created: { options: Options; closed: boolean; models: string[]; modes: string[]; remote: [boolean, string?][]; renamed: string[] }[] = [];
   const fn: QueryFn = ({ prompt, options }) => {
-    const rec = { options, closed: false, models: [] as string[], modes: [] as string[] };
+    const rec = { options, closed: false, models: [] as string[], modes: [] as string[], remote: [] as [boolean, string?][], renamed: [] as string[] };
     created.push(rec);
     const q: AgentQuery = {
       async *[Symbol.asyncIterator]() {
@@ -49,6 +49,12 @@ function fakeQueryFn(handler: Handler) {
         ],
       }),
       mcpServerStatus: async () => MCP_STATUSES,
+      initializationResult: async () => ({}),
+      renameSession: async (title) => void rec.renamed.push(title),
+      enableRemoteControl: async (on, name) => {
+        rec.remote.push([on, name]);
+        return on ? { bridge_session_id: 'cse_abc' } : {};
+      },
       close: () => void (rec.closed = true),
     };
     return q;
@@ -532,5 +538,74 @@ describe('connector', () => {
     ]);
     expect(fake.created).toHaveLength(1);
     expect(fake.created[0]!.closed).toBe(true);
+  });
+});
+
+describe('Remote Control', () => {
+  const result = async function* () {
+    yield m({ type: 'result', subtype: 'success', is_error: false, duration_ms: 1 });
+  };
+  /** Phiên có sẵn danh sách đoạn chat giả (để lấy tên đoạn chat). */
+  function withChats() {
+    const fake = fakeQueryFn(result);
+    const sessions = {
+      list: async () => [{ sessionId: 'cu', summary: '', customTitle: 'Ôn tập quang hợp', lastModified: 100, cwd: CWD }],
+      messages: async () => [] as never,
+      rename: async () => {},
+      remove: async () => {},
+    };
+    const session = new AgentSession({ cwd: () => CWD, claudeBin: '/x', emit: () => {}, queryFn: fake.fn, sessions });
+    return { session, fake };
+  }
+
+  it('bật ngay không cần nhắn: đoạn chat mới chưa có tên thì để Claude tự đặt tên; tắt không dừng phiên', async () => {
+    const { session, fake } = setup(result);
+    expect(await session.setRemote({ ...SETTINGS, remote: true })).toEqual({ bridge_session_id: 'cse_abc' });
+    expect(fake.created).toHaveLength(1);
+    expect(fake.created[0]!.remote).toEqual([[true, undefined]]);
+    expect(session.remote).toBe(true);
+    await session.send('Chào', [], { ...SETTINGS, remote: true });
+    await until(() => !session.running);
+    expect(fake.created).toHaveLength(1);
+    expect(fake.created[0]!.remote).toHaveLength(1);
+    await session.setRemote({ ...SETTINGS, remote: false });
+    expect(fake.created[0]!.remote.at(-1)).toEqual([false, undefined]);
+    expect(fake.created[0]!.closed).toBe(false);
+    expect(session.remote).toBe(false);
+  });
+
+  it('mở đoạn chat cũ khi đang bật: chạy lại ngay, tiếp tục đúng đoạn chat (lịch sử lên claude.ai), tên là tên đoạn chat; đổi tên thì đổi luôn', async () => {
+    const { session, fake } = withChats();
+    await session.setRemote({ ...SETTINGS, remote: true });
+    await session.openSession('cu');
+    await until(() => fake.created.length === 2 && fake.created[1]!.remote.length === 1);
+    expect(fake.created[0]!.closed).toBe(true);
+    expect(fake.created[1]!.options.resume).toBe('cu');
+    expect(fake.created[1]!.remote).toEqual([[true, 'Ôn tập quang hợp']]);
+    await session.renameSession('cu', 'Ôn tập chương 1');
+    expect(fake.created[1]!.renamed).toEqual(['Ôn tập chương 1']);
+    // Đoạn chat mới khi đang bật: chạy lại ngay cho đoạn chat mới.
+    await session.clear();
+    await until(() => fake.created.length === 3 && fake.created[2]!.remote.length === 1);
+    expect(fake.created[2]!.options.resume).toBeUndefined();
+  });
+
+  it('phiên khởi động lại (đổi mức suy nghĩ) khi đang bật: tự bật lại Remote Control', async () => {
+    const { session, fake } = setup(result);
+    await session.setRemote({ ...SETTINGS, remote: true });
+    await session.send('Nghĩ kỹ hơn', [], { ...SETTINGS, effort: 'high', remote: true });
+    await until(() => fake.created.length === 2 && fake.created[1]!.remote.length === 1);
+    expect(fake.created[1]!.remote).toEqual([[true, undefined]]);
+  });
+
+  it('không đổi chế độ khi Claude đang làm', async () => {
+    let finish: () => void = () => {};
+    const { session } = setup(async function* () {
+      await new Promise<void>((r) => (finish = r));
+      yield m({ type: 'result', subtype: 'success', is_error: false, duration_ms: 1 });
+    });
+    await session.send('Làm việc dài', [], SETTINGS);
+    await expect(session.setRemote({ ...SETTINGS, remote: true })).rejects.toThrow(/đang làm việc/);
+    finish();
   });
 });

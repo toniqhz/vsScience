@@ -22,13 +22,13 @@ const SUGGESTIONS = [
 
 const PREFS_KEY = 'ide.chat.prefs';
 const PLAN_DISMISSED_KEY = 'ide.chat.planDismissed';
-type Prefs = { model: string; effort: Effort | null; mode: PermissionMode };
+type Prefs = { model: string; effort: Effort | null; mode: PermissionMode; remote: boolean };
 
-function normalizePrefs(p: { model?: string; effort?: string | null; mode?: string }): Prefs {
+function normalizePrefs(p: { model?: string; effort?: string | null; mode?: string; remote?: boolean }): Prefs {
   const model = findModel(p.model ?? '');
   const effort = p.effort && model.efforts.includes(p.effort as Effort) ? (p.effort as Effort) : model.defaultEffort;
   const mode = p.mode === 'auto' || p.mode === 'plan' || p.mode === 'lazy' ? p.mode : 'ask';
-  return { model: model.id, effort, mode };
+  return { model: model.id, effort, mode, remote: !!p.remote };
 }
 
 /** Lựa chọn lần trước trên máy này — dùng tạm cho tới khi đọc được cài đặt của thư mục. */
@@ -36,7 +36,7 @@ function loadPrefs(): Prefs {
   try {
     return normalizePrefs(JSON.parse(localStorage.getItem(PREFS_KEY) ?? '') as Partial<Prefs>);
   } catch {
-    return { model: DEFAULT_MODEL.id, effort: DEFAULT_MODEL.defaultEffort, mode: 'ask' };
+    return { model: DEFAULT_MODEL.id, effort: DEFAULT_MODEL.defaultEffort, mode: 'ask', remote: false };
   }
 }
 
@@ -95,6 +95,11 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
         if (!alive) return;
         if (s.chat) setPrefs(normalizePrefs(s.chat));
         prefsRoot.current = root;
+        // Thư mục đã bật Remote Control: mở lại phiên có Remote Control để điều khiển từ xa được ngay.
+        if (s.chat?.remote) {
+          const p = normalizePrefs(s.chat);
+          void api.agentRemote({ model: p.model, effort: p.effort, mode: p.mode, remote: true }).catch(() => {});
+        }
       },
       () => alive && (prefsRoot.current = root),
     );
@@ -275,7 +280,7 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
   const send = (text: string, files: string[] = []) => {
     stickToBottom.current = true;
     follow();
-    api.agentSend({ text, files, model: prefs.model, effort: prefs.effort, mode: prefs.mode }).catch(fail);
+    api.agentSend({ text, files, model: prefs.model, effort: prefs.effort, mode: prefs.mode, remote: prefs.remote }).catch(fail);
   };
 
   const runCommand = (action: CommandAction) => {
@@ -429,6 +434,29 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
           connected={connected}
           running={agent.running}
           onStop={() => api.agentInterrupt().catch(fail)}
+          remote={prefs.remote}
+          onRemoteChange={(on) => {
+            setPrefs((p) => ({ ...p, remote: on }));
+            api.agentRemote({ model: prefs.model, effort: prefs.effort, mode: prefs.mode, remote: on }).then(
+              (r) => {
+                // Claude Code báo lại đường link phiên (nếu có) hoặc mã phiên trên claude.ai.
+                const values = Object.values(r.info ?? {}).filter((v): v is string => typeof v === 'string');
+                const url = values.find((v) => /^https:\/\//.test(v));
+                const id = values.find((v) => /^(cse|session)_/.test(v));
+                local({
+                  kind: 'notice',
+                  tone: 'info',
+                  text: on
+                    ? `Đã bật Remote Control: mở claude.ai/code hoặc app Claude trên điện thoại, tìm phiên mang tên đoạn chat này (đoạn chat mới thì Claude tự đặt tên sau tin nhắn đầu tiên).${url ? ` Link: ${url}` : id ? ` (mã phiên ${id})` : ''}`
+                    : 'Đã chuyển về chỉ điều khiển trên máy này.',
+                });
+              },
+              (e: Error) => {
+                setPrefs((p) => ({ ...p, remote: !on }));
+                fail(e);
+              },
+            );
+          }}
           blocked={
             busyElsewhere && !agent.running
               ? {

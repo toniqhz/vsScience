@@ -153,8 +153,11 @@ export const api = {
     (await request('/api/auth/login/code', { code })).json() as Promise<LoginProgress>,
   cancelLogin: async () => (await request('/api/auth/login/cancel', {})).json() as Promise<LoginProgress>,
   logout: async () => (await request('/api/auth/logout', {})).json() as Promise<AuthStatus>,
-  agentSend: async (body: { text: string; files: string[]; model: string; effort: string | null; mode: AgentMode }) =>
+  agentSend: async (body: { text: string; files: string[]; model: string; effort: string | null; mode: AgentMode; remote?: boolean }) =>
     void (await request('/api/agent/message', body)),
+  /** Bật/tắt Remote Control cho phiên Claude của cửa sổ này. */
+  agentRemote: async (body: { model: string; effort: string | null; mode: AgentMode; remote: boolean }) =>
+    (await request('/api/agent/remote', body)).json() as Promise<{ remote: boolean; info: Record<string, unknown> | null }>,
   agentInterrupt: async () => void (await request('/api/agent/interrupt', {})),
   agentPermission: async (id: string, allow: boolean, always = false) =>
     void (await request('/api/agent/permission', { id, allow, always })),

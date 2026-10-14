@@ -270,7 +270,7 @@ export interface FolderSettings {
   /** Tự lưu bản khi Claude xong một việc đủ lớn. */
   autoSave: boolean;
   /** Lựa chọn của ô chat. */
-  chat?: { model: string; effort: string | null; mode: AgentMode };
+  chat?: { model: string; effort: string | null; mode: AgentMode; remote?: boolean };
   /** Đồng bộ lên ổ đám mây: nhà cung cấp, mã thư mục, tên thư mục trên ổ. */
   cloud?: { provider: CloudProviderId; folderId: string; remoteName: string };
 }

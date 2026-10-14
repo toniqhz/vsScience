@@ -53,6 +53,9 @@ export interface ComposerProps {
   /** Claude đang làm việc: nút gửi thành nút dừng, Esc để dừng. */
   running: boolean;
   onStop: () => void;
+  /** Remote Control: điều khiển phiên này từ claude.ai/code hoặc app Claude trên điện thoại. */
+  remote: boolean;
+  onRemoteChange: (on: boolean) => void;
   /** Tạm khóa gửi (Claude ở cửa sổ khác đang làm trong thư mục này): lý do và nút xử lý. Vẫn gõ nháp được. */
   blocked?: { text: string; action?: { label: string; onClick: () => void } } | null;
   menu: ComposerMenu;
@@ -416,6 +419,18 @@ export function Composer(props: ComposerProps) {
           /
         </button>
         <ContextMeter used={usedTokens} total={props.contextTotal} onClick={() => props.onCommand('context')} />
+        <button
+          className={`composer-chip remote-chip ${props.remote ? 'is-on' : ''}`}
+          aria-pressed={props.remote}
+          title={
+            props.remote
+              ? 'Remote Control đang bật: mở phiên này trên claude.ai/code hoặc app Claude trên điện thoại. Bấm để chuyển về chỉ điều khiển trên máy này.'
+              : 'Bật Remote Control để điều khiển phiên này từ claude.ai/code hoặc app Claude trên điện thoại'
+          }
+          onClick={() => props.onRemoteChange(!props.remote)}
+        >
+          {props.remote ? 'Remote Control' : 'Local'}
+        </button>
         <button
           className={`composer-chip menu-anchor ${menu === 'model' ? 'is-open' : ''}`}
           title="Đổi model"
