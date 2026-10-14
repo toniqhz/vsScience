@@ -662,6 +662,22 @@ export async function buildApp(
       return { supported: true, enabled: notifier.enabled() };
     },
   );
+  /**
+   * "Có gì mới" sau khi cập nhật: phiên bản đang chạy (app desktop) và phiên bản đã xem lần trước trên máy này.
+   * Trang so hai bản để hiện các thay đổi ở giữa; xem xong thì báo đã xem.
+   */
+  app.get('/api/whatsnew', async () => ({
+    current: updater?.status().current ?? null,
+    lastSeen: readDeviceSettings(settingsPath).lastSeenVersion ?? null,
+  }));
+  app.post<{ Body: { version: string } }>(
+    '/api/whatsnew/seen',
+    { schema: { body: { type: 'object', required: ['version'], properties: { version: { type: 'string', pattern: '^[0-9]+(\\.[0-9]+){1,3}$' } } } } },
+    async (req) => {
+      writeDeviceSettings(settingsPath, { lastSeenVersion: req.body.version });
+      return { ok: true };
+    },
+  );
   app.post('/api/update/install', async (_req, reply) => {
     if (!updater) return reply.code(404).send({ error: 'Chỉ app desktop mới cập nhật được' });
     if (!updater.status().canInstall) return reply.code(409).send({ error: 'Chưa có bản cập nhật đã tải xong' });

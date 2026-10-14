@@ -45,6 +45,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Chỉ cần CHANGELOG.md để lấy phần "Có gì mới" của phiên bản này.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -70,6 +75,10 @@ jobs:
           Cần tài khoản Claude (Pro hoặc Max) để trò chuyện với Claude.
           NOTES
           sed -i 's/^          //' notes.md
+          # Mục "## <phiên bản> — <ngày>" của CHANGELOG.md, đặt trước phần tải về.
+          awk -v v="${GITHUB_REF_NAME#v}" '/^## /{p = ($2 == v)} p' CHANGELOG.md | sed '1s/^## .*/## Có gì mới/' > changes.md
+          if [ -s changes.md ]; then printf '\n' >> changes.md; cat changes.md notes.md > body.md; mv body.md notes.md; fi
+          cat notes.md
           gh release create "$GITHUB_REF_NAME" dist/*.exe dist/*.exe.blockmap dist/latest.yml dist/*.dmg \
             --repo "$GITHUB_REPOSITORY" \
             --title "VsScience ${GITHUB_REF_NAME#v}" \

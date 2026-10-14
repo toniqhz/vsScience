@@ -6,6 +6,8 @@ import { folderDataPath } from './folderData.js';
 /** Cài đặt của máy (lưu cạnh state.json): chỉ những gì gắn với máy, ví dụ thông báo của bản trình duyệt. */
 export interface DeviceSettings {
   notifications: boolean;
+  /** Phiên bản app đã hiện trang "Có gì mới" (để sau khi cập nhật chỉ hiện phần mới). */
+  lastSeenVersion?: string;
 }
 
 const DEVICE_DEFAULTS: DeviceSettings = { notifications: true };
@@ -26,7 +28,10 @@ function writeJson(file: string, value: object) {
 
 export function readDeviceSettings(file: string): DeviceSettings {
   const raw = readJson(file);
-  return { notifications: typeof raw.notifications === 'boolean' ? raw.notifications : DEVICE_DEFAULTS.notifications };
+  return {
+    notifications: typeof raw.notifications === 'boolean' ? raw.notifications : DEVICE_DEFAULTS.notifications,
+    ...(typeof raw.lastSeenVersion === 'string' ? { lastSeenVersion: raw.lastSeenVersion } : {}),
+  };
 }
 
 export function writeDeviceSettings(file: string, patch: Partial<DeviceSettings>): DeviceSettings {

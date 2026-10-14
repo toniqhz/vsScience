@@ -16,6 +16,8 @@ import { FolderContextDialog } from './explorer/FolderContextDialog';
 import { ContextMenu } from './ContextMenu';
 import { IS_DESKTOP, NEW_WINDOW_KEYS } from './platform';
 import { UpdateDialog, updateSummary } from './UpdateDialog';
+import { WhatsNewDialog } from './WhatsNewDialog';
+import { compareVersions, notesBetween } from './whatsNew';
 import { cloudBadge } from './sidebar/CloudDialog';
 import { SearchView } from './sidebar/SearchView';
 import { SessionsView } from './sidebar/SessionsView';
@@ -164,6 +166,23 @@ function Workbench() {
   const [view, setView] = useState<SideView>('files');
   const [contextOpen, setContextOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
+  /** Trang "Có gì mới": tự mở sau khi cập nhật (from = bản dùng trước đó), hoặc mở từ menu Cài đặt. */
+  const [whatsNew, setWhatsNew] = useState<{ from: string | null; to: string | null } | null>(null);
+  useEffect(() => {
+    api.whatsNew().then(
+      ({ current, lastSeen }) => {
+        if (!current) return;
+        // Lần đầu cài: chỉ ghi nhớ bản đang dùng. Vừa cập nhật lên bản mới hơn: hiện những gì mới ở giữa.
+        if (lastSeen && compareVersions(current, lastSeen) > 0 && notesBetween(lastSeen, current).length) setWhatsNew({ from: lastSeen, to: current });
+        else if (lastSeen !== current) void api.whatsNewSeen(current).catch(() => {});
+      },
+      () => {},
+    );
+  }, []);
+  const closeWhatsNew = () => {
+    if (whatsNew?.from && whatsNew.to) void api.whatsNewSeen(whatsNew.to).catch(() => {});
+    setWhatsNew(null);
+  };
   const [settingsMenu, setSettingsMenu] = useState<{ x: number; y: number } | null>(null);
   const [notifications, setNotifications] = useState<{ supported: boolean; enabled: boolean } | null>(null);
   const [autoSave, setAutoSave] = useState<boolean | null>(null);
@@ -350,6 +369,7 @@ function Workbench() {
       </div>
       {contextOpen && <FolderContextDialog onClose={() => setContextOpen(false)} />}
       {updateOpen && <UpdateDialog onClose={() => setUpdateOpen(false)} />}
+      {whatsNew && <WhatsNewDialog from={whatsNew.from} to={whatsNew.to} onClose={closeWhatsNew} />}
       {settingsMenu && (
         <ContextMenu
           x={settingsMenu.x}
@@ -378,6 +398,7 @@ function Workbench() {
                 ]
               : []),
             'separator',
+            { label: 'Có gì mới', icon: 'codicon-sparkle', onClick: () => setWhatsNew({ from: null, to: update?.current ?? null }) },
             {
               label: update?.state === 'ready' ? `Cài bản ${update.latest}` : update?.state === 'available' ? `Có bản mới ${update.latest}` : 'Kiểm tra cập nhật',
               icon: update?.state === 'ready' || update?.state === 'available' ? 'codicon-cloud-download' : 'codicon-sync',
