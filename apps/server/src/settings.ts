@@ -1,29 +1,54 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import type { FolderSettings } from '@ide/shared';
+import { folderDataPath } from './folderData.js';
 
-/** Cài đặt chung của app (mọi cửa sổ dùng chung, lưu cạnh state.json). */
-export interface AppSettings {
-  /** Tự lưu bản (mục Thay đổi) khi Claude xong một việc đủ lớn. Mặc định bật. */
-  autoSave: boolean;
-  /** Thông báo khi Claude xong việc / hỏi lại / cần cho phép — bản trình duyệt (app desktop lưu riêng). */
+/** Cài đặt của máy (lưu cạnh state.json): chỉ những gì gắn với máy, ví dụ thông báo của bản trình duyệt. */
+export interface DeviceSettings {
   notifications: boolean;
 }
 
-const DEFAULTS: AppSettings = { autoSave: true, notifications: true };
+const DEVICE_DEFAULTS: DeviceSettings = { notifications: true };
 
-export function readSettings(file: string): AppSettings {
+function readJson(file: string): Record<string, unknown> {
   try {
-    const raw = JSON.parse(readFileSync(file, 'utf8')) as Partial<AppSettings>;
-    const bool = (k: keyof AppSettings) => (typeof raw[k] === 'boolean' ? raw[k] : DEFAULTS[k]);
-    return { autoSave: bool('autoSave'), notifications: bool('notifications') };
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as unknown;
+    return raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   } catch {
-    return { ...DEFAULTS };
+    return {};
   }
 }
 
-export function writeSettings(file: string, patch: Partial<AppSettings>): AppSettings {
-  const next = { ...readSettings(file), ...patch };
+function writeJson(file: string, value: object) {
   mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(next, null, 2) + '\n');
+  writeFileSync(file, JSON.stringify(value, null, 2) + '\n');
+}
+
+export function readDeviceSettings(file: string): DeviceSettings {
+  const raw = readJson(file);
+  return { notifications: typeof raw.notifications === 'boolean' ? raw.notifications : DEVICE_DEFAULTS.notifications };
+}
+
+export function writeDeviceSettings(file: string, patch: Partial<DeviceSettings>): DeviceSettings {
+  const next = { ...readDeviceSettings(file), ...patch };
+  writeJson(file, { ...readJson(file), ...next });
+  return next;
+}
+
+/** Cài đặt của thư mục làm việc (.vsscience/settings.json): đi theo thư mục sang máy khác. */
+const folderFile = (root: string) => folderDataPath(root, 'settings.json');
+
+export function readFolderSettings(root: string): FolderSettings {
+  const raw = readJson(folderFile(root));
+  const chat = raw.chat as FolderSettings['chat'] | undefined;
+  return {
+    autoSave: typeof raw.autoSave === 'boolean' ? raw.autoSave : true,
+    ...(chat && typeof chat === 'object' && typeof chat.model === 'string' ? { chat } : {}),
+  };
+}
+
+export function writeFolderSettings(root: string, patch: Partial<FolderSettings>): FolderSettings {
+  const next = { ...readFolderSettings(root), ...patch };
+  writeJson(folderFile(root), next);
   return next;
 }

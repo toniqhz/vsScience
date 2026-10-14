@@ -77,6 +77,9 @@ export function lazyBlockReason(toolName: string, input: Record<string, unknown>
   if (command && ADMIN.test(command)) {
     return 'lệnh quyền quản trị hoặc sửa cài đặt hệ thống';
   }
+  if (command && DELETE.test(command) && /\.vsscience\b/i.test(command)) {
+    return 'xóa hoặc chuyển dữ liệu của app (.vsscience: đoạn chat, bản lưu)';
+  }
   const realOutside = outside.filter((p) => p !== INSTALL_REASON); // cài phần mềm: Lười biếng cho phép
   if (command && realOutside.length > 0 && DELETE.test(command)) {
     return `xóa hoặc chuyển file ngoài thư mục đang mở (${realOutside.slice(0, 3).join(', ')})`;

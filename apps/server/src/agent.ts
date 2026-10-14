@@ -25,6 +25,7 @@ import {
 import { z } from 'zod';
 import { ARTIFACT_FOLDER, type AgentBlock, type AgentEvent, type AgentMode, type AgentSessionInfo, type ConnectorInfo, type ContextUsage, type FileChange } from '@ide/shared';
 import { cliEnv } from './claude-auth.js';
+import { folderSessionStore, type FolderSessionStore } from './sessionStore.js';
 import { FolderGuard, claudeScratchRoot } from './folderGuard.js';
 import { lazyBlockReason, lazyDenyMessage } from './lazyGuard.js';
 import type { ClaudeProfile } from './profile.js';
@@ -127,11 +128,22 @@ export interface SessionApi {
   remove(id: string, dir: string): Promise<void>;
 }
 
+/** Đoạn chat lưu trong thư mục làm việc (.vsscience/sessions); thư mục không ghi được thì theo kho mặc định của Claude Code. */
+const storeOpt = async (dir: string) => {
+  const sessionStore = await folderSessionStore(dir);
+  return sessionStore ? { sessionStore } : {};
+};
+
 const sdkSessions: SessionApi = {
-  list: (dir) => sdkListSessions({ dir, includeProgrammatic: true, limit: 200 }),
-  messages: (id, dir) => sdkGetSessionMessages(id, { dir }),
-  rename: (id, title, dir) => sdkRenameSession(id, title, { dir }),
-  remove: (id, dir) => sdkDeleteSession(id, { dir }),
+  list: async (dir) => {
+    const store = await storeOpt(dir);
+    const list = await sdkListSessions({ dir, includeProgrammatic: true, limit: 200, ...store });
+    // Đoạn chat trong kho của thư mục là của thư mục này, dù được tạo khi thư mục nằm ở chỗ khác (máy khác).
+    return store.sessionStore ? list.map((s) => ({ ...s, cwd: dir })) : list;
+  },
+  messages: async (id, dir) => sdkGetSessionMessages(id, { dir, ...(await storeOpt(dir)) }),
+  rename: async (id, title, dir) => sdkRenameSession(id, title, { dir, ...(await storeOpt(dir)) }),
+  remove: async (id, dir) => sdkDeleteSession(id, { dir, ...(await storeOpt(dir)) }),
 };
 
 /**
@@ -193,6 +205,7 @@ function systemAppend(cwd: string, scratch: string | null): string {
 - Không đưa mã nguồn hay câu lệnh vào câu trả lời trừ khi người dùng hỏi. Khi cần chạy lệnh hay script để xử lý file, cứ làm rồi chỉ báo kết quả.
 - Khi trích dẫn tài liệu PDF, ghi rõ số trang.
 - Thư mục làm việc \`${cwd}\` chứa tài liệu PDF, Word, Excel của người dùng. Không để file tạm hay file rác trong đó; ${tmp}
+- Thư mục ẩn \`.vsscience\` trong thư mục làm việc là dữ liệu của app (đoạn chat, bản lưu, cài đặt): không đọc, sửa, chuyển hay xóa gì trong đó.
 - Chỉ đọc, sửa, chạy lệnh với file trong thư mục làm việc và thư mục nháp. Nếu thật sự cần file ở ngoài, nói rõ với người dùng cần file nào và vì sao; người dùng sẽ được hỏi cho phép.
 - Tra cứu tài liệu khoa học (bài báo, bằng chứng cho một nhận định, tổng quan nghiên cứu, dữ liệu): nếu có công cụ connector khoa học (tên dạng mcp__claude_ai_…, ví dụ Consensus, Scite, Elicit, PubMed, Scholar Gateway, Synapse) thì ưu tiên dùng chúng trước tìm kiếm web thông thường. Mỗi ý lấy từ nguồn ngoài phải ghi trích dẫn (tác giả, năm, tên bài, tạp chí; kèm DOI hoặc link nếu có) và cuối câu trả lời có danh sách tài liệu tham khảo. Chỉ trích dẫn nguồn đã thật sự tìm thấy qua công cụ — không bịa tên bài, tác giả hay DOI; không tìm được thì nói rõ. Phân biệt nội dung lấy từ tài liệu trong thư mục của người dùng (ghi file và số trang) với nguồn bên ngoài. Connector báo cần đăng nhập/kết nối thì nhắc người dùng kết nối ở claude.ai → Settings → Connectors (hoặc mục Connector trong app).
 - Sản phẩm viết cho người dùng (bản tóm tắt, đề cương, ghi chú, báo cáo, bảng so sánh, câu hỏi ôn tập…): mặc định ghi thành file Markdown (.md) trong thư mục \`${path.join(cwd, ARTIFACT_FOLDER)}\` (tự tạo nếu chưa có), tên file tiếng Việt ngắn gọn nói rõ nội dung. App hiện các file này ở mục Artifact để người dùng mở lại. Chỉ khi cần hình ảnh, biểu đồ hay tương tác mới viết trang .html (cũng trong thư mục đó; thư viện vẽ biểu đồ nạp qua CDN được). Người dùng yêu cầu Word, Excel hay PDF thì làm đúng định dạng đó. Không đăng lên claude.ai (công cụ Artifact, Claude Docs) trừ khi người dùng yêu cầu rõ. Thư mục làm việc đã có cấu trúc project phân tích (reports/, figures/…) thì theo cấu trúc đó. Hỏi đáp ngắn thì trả lời ngay trong khung chat, không tạo file.
@@ -443,6 +456,7 @@ export class AgentSession {
   #runtime = '';
   #cwd: string | null = null;
   #running = false;
+  #store: FolderSessionStore | null = null;
   #messages = new Map<string, MessageState>();
   #streamingMessageId: string | null = null;
   #pending = new Map<string, { resolve: (r: PermissionResult) => void; input: Record<string, unknown>; suggestions?: PermissionUpdate[] }>();
@@ -521,6 +535,8 @@ export class AgentSession {
     this.#restartRequested = false;
     if (needsRestart) {
       await this.#stop();
+      // Claude thật (không phải bản giả khi test): đoạn chat ghi vào kho trong thư mục làm việc.
+      this.#store = this.opts.queryFn ? null : await folderSessionStore(cwd);
       this.#start(settings, cwd);
     } else if (this.#query && this.#applied) {
       if (this.#applied.model !== settings.model) await this.#query.setModel(settings.model);
@@ -852,6 +868,7 @@ export class AgentSession {
         if (this.#stderr.length > 20) this.#stderr.shift();
       },
       ...(this.#sessionId ? { resume: this.#sessionId } : {}),
+      ...(this.#store ? { sessionStore: this.#store } : {}),
     };
 
     const q = (this.opts.queryFn ?? (sdkQuery as unknown as QueryFn))({ prompt: input, options });

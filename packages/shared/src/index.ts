@@ -264,6 +264,14 @@ export type ServerEvent =
   /** Bản chạy trên trình duyệt: trang tự hiện thông báo của trình duyệt (app desktop dùng thông báo của hệ điều hành). */
   | { type: 'notify'; title: string; body: string };
 
+/** Cài đặt của thư mục làm việc (lưu trong .vsscience/settings.json, đi theo thư mục sang máy khác). */
+export interface FolderSettings {
+  /** Tự lưu bản khi Claude xong một việc đủ lớn. */
+  autoSave: boolean;
+  /** Lựa chọn của ô chat. */
+  chat?: { model: string; effort: string | null; mode: AgentMode };
+}
+
 /** Cửa sổ khác đang có Claude làm việc trong thư mục trùng, cha hoặc con của thư mục đang mở. */
 export interface FolderBusy {
   /** Tên thư mục của cửa sổ kia. */

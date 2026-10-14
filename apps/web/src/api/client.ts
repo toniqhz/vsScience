@@ -1,6 +1,7 @@
 import type {
   AgentMode,
   FolderBusy,
+  FolderSettings,
   UpdateInfo,
   FolderContext,
   ConnectorInfo,
@@ -105,9 +106,9 @@ export const api = {
   updateStatus: async () => (await request('/api/update')).json() as Promise<UpdateInfo>,
   checkUpdate: async () => (await request('/api/update/check', {})).json() as Promise<UpdateInfo>,
   installUpdate: async () => void (await request('/api/update/install', {})),
-  /** Cài đặt chung: tự lưu bản khi Claude xong một việc đủ lớn. */
-  settings: async () => (await request('/api/settings')).json() as Promise<{ autoSave: boolean }>,
-  saveSettings: async (patch: { autoSave?: boolean }) => (await request('/api/settings', patch)).json() as Promise<{ autoSave: boolean }>,
+  /** Cài đặt của thư mục làm việc: tự lưu, lựa chọn của ô chat. */
+  settings: async () => (await request('/api/settings')).json() as Promise<FolderSettings>,
+  saveSettings: async (patch: Partial<FolderSettings>) => (await request('/api/settings', patch)).json() as Promise<FolderSettings>,
   /** Thông báo khi Claude xong việc / hỏi lại / cần cho phép (chỉ app desktop hỗ trợ). */
   notifications: async () => (await request('/api/notifications')).json() as Promise<{ supported: boolean; enabled: boolean }>,
   setNotifications: async (enabled: boolean) =>

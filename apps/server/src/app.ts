@@ -5,7 +5,7 @@ import path from 'node:path';
 import Fastify, { type FastifyRequest } from 'fastify';
 import websocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
-import type { FolderBusy, ServerEvent, UpdateInfo } from '@ide/shared';
+import type { FolderBusy, FolderSettings, ServerEvent, UpdateInfo } from '@ide/shared';
 import { AgentSession, type QueryFn, type SessionApi } from './agent.js';
 import { ArtifactStore, artifactTitle, artifactUrl, artifactsFromMessages, isDocsTool, linkTitle } from './artifacts.js';
 import { ClaudeAuth } from './claude-auth.js';
@@ -25,7 +25,8 @@ import { WorkspaceManager, listDirs, validateWorkspaceDir } from './workspace.js
 import { TurnNotifier, type AppNotification } from './notify.js';
 import { FolderLocks, folderLocks } from './folderLock.js';
 import { AutoSave } from './autoSave.js';
-import { readSettings, writeSettings } from './settings.js';
+import { ensureFolderData } from './folderData.js';
+import { readDeviceSettings, readFolderSettings, writeDeviceSettings, writeFolderSettings } from './settings.js';
 import type { SummaryQueryFn } from './turnSummary.js';
 
 const ALLOWED_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -177,8 +178,8 @@ export async function buildApp(
   const settingsPath = path.join(path.dirname(config.statePath), 'settings.json');
   // App desktop: thông báo của hệ điều hành. Trình duyệt: gửi cho trang tự hiện thông báo của trình duyệt.
   const notifier = opts.notifier ?? {
-    enabled: () => readSettings(settingsPath).notifications,
-    setEnabled: (on: boolean) => void writeSettings(settingsPath, { notifications: on }),
+    enabled: () => readDeviceSettings(settingsPath).notifications,
+    setEnabled: (on: boolean) => void writeDeviceSettings(settingsPath, { notifications: on }),
     notify: (n: AppNotification) => broadcast({ type: 'notify', title: n.title, body: n.body }),
   };
   // Khóa thư mục khi Claude đang làm: cửa sổ khác cùng thư mục (hoặc thư mục cha/con) không gửi được tin nhắn.
@@ -203,7 +204,7 @@ export async function buildApp(
   });
   // Tự lưu khi Claude xong một việc đủ lớn (thay đổi đủ nhiều và đã làm trọn yêu cầu); mô tả là tóm tắt yêu cầu.
   const autoSave = new AutoSave({
-    enabled: () => readSettings(settingsPath).autoSave,
+    enabled: () => readFolderSettings(workspace.root).autoSave,
     snapshots,
     claudeBin: config.claudeBin,
     queryFn: opts.summaryQueryFn,
@@ -426,12 +427,35 @@ export async function buildApp(
       return { ok: true };
     },
   );
-  /** Cài đặt chung (bật/tắt tự lưu). */
-  app.get('/api/settings', async () => readSettings(settingsPath));
-  app.post<{ Body: { autoSave?: boolean } }>(
+  /** Cài đặt của thư mục làm việc (tự lưu, lựa chọn của ô chat). */
+  app.get('/api/settings', async () => readFolderSettings(workspace.root));
+  app.post<{ Body: Partial<FolderSettings> }>(
     '/api/settings',
-    { schema: { body: { type: 'object', properties: { autoSave: { type: 'boolean' } }, additionalProperties: false } } },
-    async (req) => writeSettings(settingsPath, req.body),
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            autoSave: { type: 'boolean' },
+            chat: {
+              type: 'object',
+              required: ['model', 'mode'],
+              additionalProperties: false,
+              properties: {
+                model: { type: 'string', maxLength: 100 },
+                effort: { type: ['string', 'null'], maxLength: 20 },
+                mode: { type: 'string', enum: ['ask', 'auto', 'plan', 'lazy'] },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!(await ensureFolderData(workspace.root))) return reply.code(409).send({ error: 'Thư mục này không ghi được cài đặt' });
+      return writeFolderSettings(workspace.root, req.body);
+    },
   );
   app.get('/api/agent/lock', async () => ({ busyElsewhere: busyElsewhere() }));
   /** Chuyển tới cửa sổ đang có Claude làm việc trong thư mục này. */

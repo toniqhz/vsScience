@@ -24,13 +24,17 @@ const PREFS_KEY = 'ide.chat.prefs';
 const PLAN_DISMISSED_KEY = 'ide.chat.planDismissed';
 type Prefs = { model: string; effort: Effort | null; mode: PermissionMode };
 
+function normalizePrefs(p: { model?: string; effort?: string | null; mode?: string }): Prefs {
+  const model = findModel(p.model ?? '');
+  const effort = p.effort && model.efforts.includes(p.effort as Effort) ? (p.effort as Effort) : model.defaultEffort;
+  const mode = p.mode === 'auto' || p.mode === 'plan' || p.mode === 'lazy' ? p.mode : 'ask';
+  return { model: model.id, effort, mode };
+}
+
+/** Lựa chọn lần trước trên máy này — dùng tạm cho tới khi đọc được cài đặt của thư mục. */
 function loadPrefs(): Prefs {
   try {
-    const p = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '') as Partial<Prefs>;
-    const model = findModel(p.model ?? '');
-    const effort = p.effort && model.efforts.includes(p.effort) ? p.effort : model.defaultEffort;
-    const mode = p.mode === 'auto' || p.mode === 'plan' || p.mode === 'lazy' ? p.mode : 'ask';
-    return { model: model.id, effort, mode };
+    return normalizePrefs(JSON.parse(localStorage.getItem(PREFS_KEY) ?? '') as Partial<Prefs>);
   } catch {
     return { model: DEFAULT_MODEL.id, effort: DEFAULT_MODEL.defaultEffort, mode: 'ask' };
   }
@@ -41,7 +45,7 @@ function loadPrefs(): Prefs {
  * hội thoại dựng từ luồng sự kiện qua WebSocket, nên tải lại trang vẫn giữ nguyên.
  */
 export function ChatPanel({ activePath, onOpenFile }: { activePath: string | null; onOpenFile: (path: string) => void }) {
-  const { onAgent, planUsage, refreshUsage, packs, busyElsewhere } = useWorkspace();
+  const { onAgent, planUsage, refreshUsage, packs, busyElsewhere, info } = useWorkspace();
   const [packOpen, setPackOpen] = useState<string | null>(null);
   const dataPack = packs?.find((p) => p.id === 'data') ?? null;
   // Lần đầu mở app (bản desktop): hỏi có cài gói phân tích số liệu không.
@@ -79,13 +83,33 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
       .catch(() => setAuth({ loggedIn: false, method: 'none', email: null, plan: null, orgName: null }));
   }, []);
 
+  // Lựa chọn model/chế độ là cài đặt của thư mục (.vsscience/settings.json): đọc khi mở thư mục, ghi khi đổi.
+  const root = info?.root;
+  const prefsRoot = useRef<string | null>(null);
+  useEffect(() => {
+    if (!root) return;
+    prefsRoot.current = null;
+    let alive = true;
+    api.settings().then(
+      (s) => {
+        if (!alive) return;
+        if (s.chat) setPrefs(normalizePrefs(s.chat));
+        prefsRoot.current = root;
+      },
+      () => alive && (prefsRoot.current = root),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [root]);
   useEffect(() => {
     try {
       localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
     } catch {
       // không lưu được lựa chọn — vẫn dùng trong phiên này
     }
-  }, [prefs]);
+    if (root && prefsRoot.current === root) api.saveSettings({ chat: prefs }).catch(() => {});
+  }, [prefs, root]);
 
   /** Vị trí cuộn lần trước: cuộn ngược lên so với nó là người dùng đang đọc lại (app chỉ tự cuộn xuống). */
   const prevTop = useRef(0);

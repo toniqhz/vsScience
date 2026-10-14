@@ -7,6 +7,7 @@ import type { ChangeStatus, ChangedFile, ChangesResponse, FileDiff, RestoreResul
 import { comparableLines } from './docText.js';
 import { PathError, fileKind, isHiddenName, resolveInWorkspace } from './paths.js';
 import { diffLines } from './textDiff.js';
+import { ensureFolderData, folderDataPath, migrateDir } from './folderData.js';
 
 const AUTHOR = { name: 'VsScience', email: 'vsscience@localhost' };
 /** File lớn hơn mức này không đưa vào bản lưu. */
@@ -45,8 +46,14 @@ export class Snapshots {
   open(root: string): Promise<void> {
     return this.#serial(async () => {
       this.#root = root;
-      const id = createHash('sha1').update(root).digest('hex').slice(0, 16);
-      this.#gitdir = path.join(this.baseDir, id);
+      // Bản lưu nằm trong thư mục làm việc (.vsscience/history); bản cũ trong thư mục dữ liệu của app được chuyển sang.
+      const legacy = path.join(this.baseDir, createHash('sha1').update(root).digest('hex').slice(0, 16));
+      if (await ensureFolderData(root)) {
+        this.#gitdir = folderDataPath(root, 'history');
+        await migrateDir(legacy, this.#gitdir).catch(() => {});
+      } else {
+        this.#gitdir = legacy;
+      }
       if (!fs.existsSync(path.join(this.#gitdir, 'HEAD'))) {
         await mkdir(this.#gitdir, { recursive: true });
         await git.init({ ...this.#repo(), defaultBranch: 'main' });

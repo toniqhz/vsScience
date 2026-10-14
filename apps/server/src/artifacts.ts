@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { ARTIFACT_FOLDER, type ArtifactInfo } from '@ide/shared';
+import { ensureFolderData, folderDataPath, migrateDir } from './folderData.js';
 
 /** Link trang Claude đăng (claude.ai/artifact/… hoặc claude.ai/code/artifact/…), lấy từ kết quả công cụ Artifact. */
 const ARTIFACT_URL = /https:\/\/claude\.ai\/(?:code\/)?artifact\/[A-Za-z0-9_-]+/;
@@ -49,7 +50,7 @@ interface Index {
  * - file mới trong thư mục làm việc (ghi chú .md, đề .docx, bảng .xlsx…): chỉ lưu đường dẫn, xem bằng khung xem file;
  *   file đã bị xóa thì tự rời khỏi danh sách.
  * - trang đăng lên claude.ai (công cụ Artifact): lưu bản sao HTML để xem lại trong app.
- * Nằm trong thư mục dữ liệu của app, mỗi thư mục làm việc một thư mục con (theo mã băm đường dẫn).
+ * Nằm trong chính thư mục làm việc (.vsscience/artifacts), đi theo thư mục khi chép hay đồng bộ sang máy khác.
  */
 /** Tiêu đề khi công cụ không cho biết tên trang. */
 const FALLBACK_TITLE = 'Trang trên claude.ai';
@@ -57,13 +58,30 @@ const FALLBACK_TITLE = 'Trang trên claude.ai';
 export class ArtifactStore {
   constructor(private readonly dir: string) {}
 
-  #folder(cwd: string): string {
-    return path.join(this.dir, createHash('sha1').update(cwd).digest('hex').slice(0, 12));
+  #folders = new Map<string, Promise<string>>();
+
+  /**
+   * Thư mục lưu của một thư mục làm việc: .vsscience/artifacts trong chính thư mục đó (bản cũ trong thư mục
+   * dữ liệu của app được chuyển sang); thư mục làm việc không ghi được thì dùng thư mục dữ liệu của app.
+   */
+  #folder(cwd: string): Promise<string> {
+    let p = this.#folders.get(cwd);
+    if (!p) {
+      p = (async () => {
+        const legacy = path.join(this.dir, createHash('sha1').update(cwd).digest('hex').slice(0, 12));
+        if (!(await ensureFolderData(cwd))) return legacy;
+        const inFolder = folderDataPath(cwd, 'artifacts');
+        await migrateDir(legacy, inFolder).catch(() => {});
+        return inFolder;
+      })();
+      this.#folders.set(cwd, p);
+    }
+    return p;
   }
 
   async #load(cwd: string): Promise<Index> {
     try {
-      const raw = JSON.parse(await readFile(path.join(this.#folder(cwd), 'index.json'), 'utf8')) as Index | ArtifactInfo[];
+      const raw = JSON.parse(await readFile(path.join(await this.#folder(cwd), 'index.json'), 'utf8')) as Index | ArtifactInfo[];
       const index = Array.isArray(raw) ? { items: raw } : raw;
       // Bản cũ chỉ có trang đã đăng.
       index.items = index.items.map((a) => ({ ...a, source: a.source ?? 'published' }));
@@ -74,8 +92,8 @@ export class ArtifactStore {
   }
 
   async #save(cwd: string, index: Index) {
-    await mkdir(this.#folder(cwd), { recursive: true });
-    await writeFile(path.join(this.#folder(cwd), 'index.json'), JSON.stringify(index, null, 2));
+    await mkdir(await this.#folder(cwd), { recursive: true });
+    await writeFile(path.join(await this.#folder(cwd), 'index.json'), JSON.stringify(index, null, 2));
   }
 
   /**
@@ -125,9 +143,9 @@ export class ArtifactStore {
           createdAt: now,
           updatedAt: now,
         };
-    await mkdir(this.#folder(cwd), { recursive: true });
+    await mkdir(await this.#folder(cwd), { recursive: true });
     info.local = true;
-    await writeFile(path.join(this.#folder(cwd), `${info.id}.html`), entry.html);
+    await writeFile(path.join(await this.#folder(cwd), `${info.id}.html`), entry.html);
     await this.#save(cwd, { ...index, items: [info, ...index.items.filter((a) => a.id !== info.id)] });
     return info;
   }
@@ -212,7 +230,7 @@ export class ArtifactStore {
   async content(cwd: string, id: string): Promise<string | null> {
     if (!/^[0-9a-f-]{36}$/.test(id)) return null;
     try {
-      return await readFile(path.join(this.#folder(cwd), `${id}.html`), 'utf8');
+      return await readFile(path.join(await this.#folder(cwd), `${id}.html`), 'utf8');
     } catch {
       return null;
     }
@@ -222,7 +240,7 @@ export class ArtifactStore {
   async remove(cwd: string, id: string): Promise<void> {
     const index = await this.#load(cwd);
     if (!index.items.some((a) => a.id === id)) return;
-    await rm(path.join(this.#folder(cwd), `${id}.html`), { force: true });
+    await rm(path.join(await this.#folder(cwd), `${id}.html`), { force: true });
     await this.#save(cwd, { ...index, items: index.items.filter((a) => a.id !== id) });
   }
 }
