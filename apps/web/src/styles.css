@@ -3889,7 +3889,7 @@ a.btn {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #3fb950;
+  background: var(--cloud);
   box-shadow: 0 0 0 2px var(--bg-activity, #181818);
 }
 
@@ -4285,4 +4285,38 @@ a.btn {
 
 button.composer-chip.remote-chip.is-on:hover {
   background: #5a6ed6;
+}
+
+/* Chấm vàng trong menu: có bản mới */
+.menu-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-left: 8px;
+  border-radius: 50%;
+  background: var(--cloud);
+}
+
+/* Dòng tài khoản trong menu Cài đặt (chỉ để xem) */
+.context-menu-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  color: var(--text-strong);
+  white-space: nowrap;
+  cursor: default;
+}
+
+.context-menu-heading .codicon {
+  width: 16px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.context-menu-heading .context-menu-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
 }

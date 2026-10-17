@@ -3,7 +3,7 @@ import type { AuthStatus, ClaudeProfileInfo } from '@ide/shared';
 import { api } from '../api/client';
 import { useWorkspace } from '../api/workspace';
 import { agentReducer, initialAgentState, type LocalNode } from '../chat/agentStore';
-import { COMMANDS, type CommandAction } from '../chat/commands';
+import { CHAT_COMMAND_EVENT, COMMANDS, type CommandAction } from '../chat/commands';
 import { Composer, type ComposerMenu } from '../chat/Composer';
 import { LoginDialog, planLabel } from '../chat/LoginDialog';
 import { DEFAULT_MODEL, findModel, type Effort, type PermissionMode } from '../chat/models';
@@ -283,6 +283,14 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
     api.agentSend({ text, files, model: prefs.model, effort: prefs.effort, mode: prefs.mode, remote: prefs.remote }).catch(fail);
   };
 
+  // Menu Cài đặt (Tài khoản Claude) chạy lệnh của khung chat qua sự kiện; luôn dùng bản runCommand mới nhất.
+  const runCommandRef = useRef<(action: CommandAction) => void>(() => {});
+  useEffect(() => {
+    const onCommand = (e: Event) => runCommandRef.current((e as CustomEvent<CommandAction>).detail);
+    window.addEventListener(CHAT_COMMAND_EVENT, onCommand);
+    return () => window.removeEventListener(CHAT_COMMAND_EVENT, onCommand);
+  }, []);
+
   const runCommand = (action: CommandAction) => {
     switch (action) {
       case 'clear':
@@ -322,6 +330,17 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
           })
           .catch(fail);
         return;
+      case 'switch-account':
+        // Đổi tài khoản: đăng xuất (cả Claude Code trên máy) rồi mở ngay hộp đăng nhập.
+        if (!window.confirm('Đổi tài khoản sẽ đăng xuất tài khoản Claude hiện tại trên máy này (cả Claude Code, plugin VS Code) rồi mở trang đăng nhập. Tiếp tục?')) return;
+        api
+          .logout()
+          .then((s) => {
+            setAuth(s);
+            setLoginOpen(true);
+          })
+          .catch(fail);
+        return;
       case 'packs':
         if (!dataPack) {
           local({ kind: 'notice', tone: 'info', text: 'Gói tùy chọn chỉ có trong app desktop. Khi chạy dev, Claude dùng Python có sẵn trên máy.' });
@@ -347,6 +366,8 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
     },
     [local],
   );
+
+  runCommandRef.current = runCommand;
 
   return (
     <div className="chat-panel" ref={panelRef}>

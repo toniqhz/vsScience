@@ -107,6 +107,8 @@ export const api = {
   saveFolderContext: async (ctx: FolderContext) => (await request('/api/workspace/context', ctx)).json() as Promise<FolderContext>,
   /** Trạng thái cập nhật app (404 khi không phải app desktop). */
   updateStatus: async () => (await request('/api/update')).json() as Promise<UpdateInfo>,
+  /** Ghi chú "Có gì mới" của bản mới chưa cài (từ GitHub). */
+  updateNotes: async () => (await request('/api/update/notes')).json() as Promise<{ version: string; date: string; body: string }[]>,
   checkUpdate: async () => (await request('/api/update/check', {})).json() as Promise<UpdateInfo>,
   installUpdate: async () => void (await request('/api/update/install', {})),
   /** "Có gì mới" sau khi cập nhật: bản đang chạy và bản đã xem trên máy này. */

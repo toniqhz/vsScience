@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Allotment, LayoutPriority } from 'allotment';
 import 'allotment/dist/style.css';
 import type { DockviewApi } from 'dockview-react';
-import type { ArtifactInfo, ChangesResponse, FindTarget, TreeNode } from '@ide/shared';
+import type { ArtifactInfo, AuthStatus, ChangesResponse, FindTarget, TreeNode } from '@ide/shared';
 import { api, hasToken } from './api/client';
 import { WorkspaceProvider, useWorkspace } from './api/workspace';
 import { Explorer } from './explorer/Explorer';
@@ -19,6 +19,8 @@ import { UpdateDialog, updateSummary } from './UpdateDialog';
 import { WhatsNewDialog } from './WhatsNewDialog';
 import { RELEASE_NOTES, compareVersions, notesBetween } from './whatsNew';
 import { cloudBadge } from './sidebar/CloudDialog';
+import { planLabel } from './chat/LoginDialog';
+import { runChatCommand } from './chat/commands';
 import { SearchView } from './sidebar/SearchView';
 import { SessionsView } from './sidebar/SessionsView';
 import { WorkbenchContext, type SnapshotRef } from './workbenchContext';
@@ -86,7 +88,7 @@ function ActivityBar({
       <div className="activity-spacer" />
       <button className="activity-item" title="Cài đặt" onClick={(e) => onSettings(e.currentTarget.getBoundingClientRect())}>
         <span className="codicon codicon-settings-gear" />
-        {updateReady && <span className="activity-dot" title="Có bản cập nhật" />}
+        {updateReady && <span className="activity-dot" title="Có bản mới — xem ở Cài đặt → Có gì mới" />}
       </button>
     </nav>
   );
@@ -167,7 +169,7 @@ function Workbench() {
   const [contextOpen, setContextOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
   /** Trang "Có gì mới": tự mở sau khi cập nhật (from = bản dùng trước đó), hoặc mở từ menu Cài đặt. */
-  const [whatsNew, setWhatsNew] = useState<{ from: string | null; to: string | null; fromUnknown?: boolean } | null>(null);
+  const [whatsNew, setWhatsNew] = useState<{ from: string | null; to: string | null; fromUnknown?: boolean; upcoming?: boolean } | null>(null);
   useEffect(() => {
     api.whatsNew().then(
       ({ current, lastSeen, usedBefore }) => {
@@ -196,10 +198,12 @@ function Workbench() {
   const [settingsMenu, setSettingsMenu] = useState<{ x: number; y: number } | null>(null);
   const [notifications, setNotifications] = useState<{ supported: boolean; enabled: boolean } | null>(null);
   const [autoSave, setAutoSave] = useState<boolean | null>(null);
+  const [account, setAccount] = useState<AuthStatus | null>(null);
   // Đọc lúc mở app và mỗi lần mở menu: cài đặt dùng chung với các cửa sổ khác.
   useEffect(() => {
     api.notifications().then(setNotifications, () => {});
     api.settings().then((s) => setAutoSave(s.autoSave), () => {});
+    if (settingsMenu) api.authStatus().then(setAccount, () => setAccount(null));
   }, [settingsMenu]);
   const toggleAutoSave = () => {
     if (autoSave === null) return;
@@ -223,6 +227,8 @@ function Workbench() {
   const [activePath, setActivePath] = useState<string | null>(null);
   const dockRef = useRef<DockviewApi | null>(null);
   const { info, tree, update } = useWorkspace();
+  /** Có bản mới (đang tải, đã tải xong hoặc chờ tải bộ cài): chấm vàng ở nút Cài đặt và mục Có gì mới. */
+  const hasUpdate = update?.state === 'ready' || update?.state === 'available' || update?.state === 'downloading';
   const changes = useChanges();
 
   // Đổi thư mục làm việc: đóng các tab của thư mục cũ.
@@ -341,7 +347,7 @@ function Workbench() {
             onSelect={selectView}
             changeCount={changes.data?.files.length ?? 0}
             onSettings={(r) => setSettingsMenu({ x: r.right + 4, y: r.bottom })}
-            updateReady={update?.state === 'ready' || update?.state === 'available'}
+            updateReady={hasUpdate}
           />
           <Allotment proportionalLayout={false}>
             <Allotment.Pane preferredSize={260} minSize={180} maxSize={480} visible={sideOpen} snap>
@@ -379,13 +385,41 @@ function Workbench() {
       </div>
       {contextOpen && <FolderContextDialog onClose={() => setContextOpen(false)} />}
       {updateOpen && <UpdateDialog onClose={() => setUpdateOpen(false)} />}
-      {whatsNew && <WhatsNewDialog from={whatsNew.from} to={whatsNew.to} fromUnknown={whatsNew.fromUnknown} onClose={closeWhatsNew} />}
+      {whatsNew && (
+        <WhatsNewDialog
+          from={whatsNew.from}
+          to={whatsNew.to}
+          fromUnknown={whatsNew.fromUnknown}
+          upcoming={whatsNew.upcoming}
+          onUpdate={() => {
+            setWhatsNew(null);
+            if (update?.state === 'ready') void api.installUpdate();
+            else setUpdateOpen(true);
+          }}
+          onClose={closeWhatsNew}
+        />
+      )}
       {settingsMenu && (
         <ContextMenu
           x={settingsMenu.x}
           y={settingsMenu.y}
           onClose={() => setSettingsMenu(null)}
           items={[
+            // Tài khoản Claude: dùng chung đăng nhập với Claude Code trên máy.
+            ...(account?.loggedIn
+              ? [
+                  {
+                    heading: account.email ?? (account.method === 'api_key' ? 'Khóa API' : 'Tài khoản Claude'),
+                    icon: 'codicon-account',
+                    hint: account.plan ? `Claude ${planLabel(account.plan)}` : undefined,
+                  },
+                  { label: 'Đổi tài khoản…', icon: 'codicon-arrow-swap', onClick: () => runChatCommand('switch-account') },
+                  { label: 'Đăng xuất', icon: 'codicon-sign-out', danger: true, onClick: () => runChatCommand('logout') },
+                  'separator' as const,
+                ]
+              : account
+                ? [{ label: 'Đăng nhập Claude…', icon: 'codicon-account', onClick: () => runChatCommand('login') }, 'separator' as const]
+                : []),
             ...(IS_DESKTOP
               ? [{ label: 'Cửa sổ mới…', icon: 'codicon-empty-window', hint: NEW_WINDOW_KEYS, onClick: () => void api.newWindow().catch(() => {}) }, 'separator' as const]
               : []),
@@ -408,7 +442,14 @@ function Workbench() {
                 ]
               : []),
             'separator',
-            { label: 'Có gì mới', icon: 'codicon-sparkle', onClick: () => setWhatsNew({ from: null, to: update?.current ?? null }) },
+            {
+              label: 'Có gì mới',
+              icon: 'codicon-sparkle',
+              // Có bản mới chưa cài: chấm vàng, bấm vào xem ghi chú của bản mới kèm nút cập nhật.
+              dot: hasUpdate,
+              hint: hasUpdate ? `bản ${update?.latest}` : undefined,
+              onClick: () => setWhatsNew(hasUpdate ? { from: null, to: null, upcoming: true } : { from: null, to: update?.current ?? null }),
+            },
             {
               label: update?.state === 'ready' ? `Cài bản ${update.latest}` : update?.state === 'available' ? `Có bản mới ${update.latest}` : 'Kiểm tra cập nhật',
               icon: update?.state === 'ready' || update?.state === 'available' ? 'codicon-cloud-download' : 'codicon-sync',

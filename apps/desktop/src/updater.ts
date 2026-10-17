@@ -9,7 +9,9 @@ import type { UpdateInfo } from '@ide/shared';
 
 const OWNER = 'toniqhz';
 const REPO = 'vsScience';
-const CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
+/** Kiểm tra mỗi lần mở app và mỗi ngày một lần nếu app mở liên tục. */
+const CHECK_EVERY_MS = 24 * 60 * 60 * 1000;
+const FIRST_CHECK_MS = 5_000;
 
 type Listener = (u: UpdateInfo) => void;
 
@@ -128,10 +130,10 @@ export class Updater {
     if (this.#auto && this.#info.canInstall) electronUpdater.autoUpdater.quitAndInstall(true, true);
   }
 
-  /** Kiểm tra lúc mở app (sau một lúc cho app khởi động xong) và định kỳ. */
+  /** Kiểm tra lúc mở app (sau vài giây cho app khởi động xong) và mỗi ngày một lần. */
   start() {
     if (this.#info.state === 'unsupported') return;
-    setTimeout(() => void this.check(), 15_000);
+    setTimeout(() => void this.check(), FIRST_CHECK_MS);
     this.#timer = setInterval(() => void this.check(), CHECK_EVERY_MS);
     this.#timer.unref();
   }

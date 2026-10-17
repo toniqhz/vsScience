@@ -29,6 +29,7 @@ import { ensureFolderData } from './folderData.js';
 import { CloudAccounts, type SecretBox } from './cloud/accounts.js';
 import { FolderSync, MANIFEST, cloneFolder, listRemoteFolders } from './cloud/sync.js';
 import { restoreHistory } from './snapshots.js';
+import { releaseNotesBetween } from './releaseNotes.js';
 import { readDeviceSettings, readFolderSettings, writeDeviceSettings, writeFolderSettings } from './settings.js';
 import type { SummaryQueryFn } from './turnSummary.js';
 
@@ -697,6 +698,16 @@ export async function buildApp(
    * "Có gì mới" sau khi cập nhật: phiên bản đang chạy (app desktop) và phiên bản đã xem lần trước trên máy này.
    * Trang so hai bản để hiện các thay đổi ở giữa; xem xong thì báo đã xem.
    */
+  /** Ghi chú "Có gì mới" của bản mới chưa cài (từ GitHub Releases), để xem trước khi cập nhật. */
+  app.get('/api/update/notes', async (_req, reply) => {
+    const u = updater?.status();
+    if (!u?.latest) return reply.code(404).send({ error: 'Chưa có bản mới' });
+    try {
+      return await releaseNotesBetween(u.current, u.latest);
+    } catch (err) {
+      return reply.code(502).send({ error: `Không tải được ghi chú bản mới: ${(err as Error).message}` });
+    }
+  });
   app.get('/api/whatsnew', async () => ({
     current: updater?.status().current ?? null,
     lastSeen: readDeviceSettings(settingsPath).lastSeenVersion ?? null,

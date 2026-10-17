@@ -1,7 +1,14 @@
 // Lệnh gõ bằng "/" trong ô chat, theo kiểu Claude Code.
 // "action": lệnh chạy ngay; "prompt": kỹ năng — điền sẵn câu lệnh mẫu để người dùng sửa rồi gửi.
 
-export type CommandAction = 'clear' | 'compact' | 'context' | 'model' | 'mode' | 'login' | 'logout' | 'packs' | 'help';
+export type CommandAction = 'clear' | 'compact' | 'context' | 'model' | 'mode' | 'login' | 'logout' | 'switch-account' | 'packs' | 'help';
+
+/** Sự kiện để nơi khác (menu Cài đặt) chạy lệnh của khung chat: đăng nhập, đăng xuất, đổi tài khoản. */
+export const CHAT_COMMAND_EVENT = 'vsscience:chat-command';
+
+export function runChatCommand(action: CommandAction) {
+  window.dispatchEvent(new CustomEvent<CommandAction>(CHAT_COMMAND_EVENT, { detail: action }));
+}
 
 export type Command =
   | { name: string; description: string; icon: string; kind: 'action'; action: CommandAction }

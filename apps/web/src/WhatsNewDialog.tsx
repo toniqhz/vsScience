@@ -1,7 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { api } from './api/client';
+import { useWorkspace } from './api/workspace';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { RELEASE_NOTES, notesBetween } from './whatsNew';
+import { RELEASE_NOTES, notesBetween, type ReleaseNote } from './whatsNew';
 
 /** Ngày "2026-10-15" → "15/10/2026". */
 function viDate(d: string): string {
@@ -17,16 +19,33 @@ export function WhatsNewDialog({
   from,
   to,
   fromUnknown,
+  upcoming,
+  onUpdate,
   onClose,
 }: {
   from?: string | null;
   to?: string | null;
   /** Không biết bản dùng trước đó (cập nhật từ bản cũ chưa ghi nhớ): chỉ hiện phần mới của bản đang chạy. */
   fromUnknown?: boolean;
+  /** Có bản mới chưa cài: hiện ghi chú của bản mới (tải từ GitHub) kèm nút cập nhật. */
+  upcoming?: boolean;
+  /** Mở hộp thoại cập nhật. */
+  onUpdate?: () => void;
   onClose: () => void;
 }) {
-  const notes = from && to ? notesBetween(from, to) : (to ? notesBetween('0', to) : RELEASE_NOTES).slice(0, 4);
-  const latest = to ?? notes[0]?.version;
+  const { update } = useWorkspace();
+  const [remote, setRemote] = useState<{ notes: ReleaseNote[] | null; error?: string } | null>(upcoming ? { notes: null } : null);
+  useEffect(() => {
+    if (!upcoming) return;
+    api.updateNotes().then(
+      (notes) => setRemote({ notes }),
+      (e: Error) => setRemote({ notes: [], error: e.message }),
+    );
+  }, [upcoming]);
+  const notes = upcoming
+    ? (remote?.notes ?? [])
+    : (from && to ? notesBetween(from, to) : (to ? notesBetween('0', to) : RELEASE_NOTES)).slice(0, upcoming ? 99 : 4);
+  const latest = upcoming ? update?.latest : (to ?? notes[0]?.version);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -40,9 +59,13 @@ export function WhatsNewDialog({
         <div className="whats-new-hero">
           <span className="codicon codicon-sparkle whats-new-icon" />
           <div>
-            <div className="whats-new-title">{from ? `Đã cập nhật lên VsScience ${latest}` : 'Có gì mới trong VsScience'}</div>
+            <div className="whats-new-title">
+              {upcoming ? `Có bản mới VsScience ${latest ?? ''}` : from ? `Đã cập nhật lên VsScience ${latest}` : 'Có gì mới trong VsScience'}
+            </div>
             <div className="whats-new-sub">
-              {fromUnknown
+              {upcoming
+                ? `Những gì mới so với bản ${update?.current ?? ''} bạn đang dùng`
+                : fromUnknown
                 ? 'Những gì mới trong bản này'
                 : from
                   ? `Những gì mới kể từ bản ${from} bạn dùng trước đó`
@@ -67,13 +90,26 @@ export function WhatsNewDialog({
               </div>
             </section>
           ))}
-          {notes.length === 0 && <div className="whats-new-empty">Chưa có ghi chú cho bản này.</div>}
+          {upcoming && !remote?.notes && <div className="whats-new-empty">Đang tải ghi chú bản mới…</div>}
+          {remote?.error && <div className="whats-new-empty">{remote.error}</div>}
+          {notes.length === 0 && (!upcoming || (remote?.notes && !remote.error)) && <div className="whats-new-empty">Chưa có ghi chú cho bản này.</div>}
         </div>
         <div className="modal-footer">
           <span className="modal-footer-path" />
-          <button className="btn btn-primary" onClick={onClose}>
-            Đã hiểu
-          </button>
+          {upcoming && onUpdate ? (
+            <>
+              <button className="btn" onClick={onClose}>
+                Để sau
+              </button>
+              <button className="btn btn-primary" onClick={onUpdate}>
+                <span className="codicon codicon-cloud-download" /> {update?.state === 'ready' ? 'Khởi động lại để cập nhật' : `Cập nhật lên ${latest ?? 'bản mới'}`}
+              </button>
+            </>
+          ) : (
+            <button className="btn btn-primary" onClick={onClose}>
+              Đã hiểu
+            </button>
+          )}
         </div>
       </div>
     </div>

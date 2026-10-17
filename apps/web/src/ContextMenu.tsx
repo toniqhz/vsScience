@@ -1,8 +1,10 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 
 export type ContextMenuItem =
+  /** Dòng chỉ để xem (không bấm được), ví dụ tài khoản đang đăng nhập. */
+  | { heading: string; icon: string; hint?: string }
   /** `checked`: mục bật/tắt, hiện công tắc và giữ menu mở khi bấm. */
-  | { label: string; icon: string; danger?: boolean; hint?: string; checked?: boolean; onClick: () => void }
+  | { label: string; icon: string; danger?: boolean; hint?: string; checked?: boolean; /** Chấm vàng báo có điều mới. */ dot?: boolean; onClick: () => void }
   | 'separator';
 
 /**
@@ -26,12 +28,19 @@ export function ContextMenu({
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const { width, height } = el.getBoundingClientRect();
-    setPos({
-      left: Math.max(4, Math.min(x, window.innerWidth - width - 4)),
-      top: Math.max(4, Math.min(y, window.innerHeight - height - 4)),
-    });
+    // Tính lại khi menu đổi cỡ (mục nạp sau, ví dụ tài khoản Claude), để không tràn ra ngoài cửa sổ.
+    const place = () => {
+      const { width, height } = el.getBoundingClientRect();
+      setPos({
+        left: Math.max(4, Math.min(x, window.innerWidth - width - 4)),
+        top: Math.max(4, Math.min(y, window.innerHeight - height - 4)),
+      });
+    };
+    place();
     el.querySelector<HTMLButtonElement>('button')?.focus();
+    const ro = new ResizeObserver(place);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [x, y]);
 
   useLayoutEffect(() => {
@@ -65,6 +74,12 @@ export function ContextMenu({
       {items.map((item, i) =>
         item === 'separator' ? (
           <div key={i} className="context-menu-sep" role="separator" />
+        ) : 'heading' in item ? (
+          <div key={i} className="context-menu-heading" title={item.hint ? `${item.heading} · ${item.hint}` : item.heading}>
+            <span className={`codicon ${item.icon}`} />
+            <span className="context-menu-label">{item.heading}</span>
+            {item.hint && <span className="context-menu-hint">{item.hint}</span>}
+          </div>
         ) : (
           <button
             key={i}
@@ -78,6 +93,7 @@ export function ContextMenu({
           >
             <span className={`codicon ${item.icon}`} />
             <span className="context-menu-label">{item.label}</span>
+            {item.dot && <span className="menu-dot" aria-label="Có bản mới" />}
             {item.hint && <span className="context-menu-hint">{item.hint}</span>}
             {item.checked !== undefined && <span className={`menu-switch ${item.checked ? 'is-on' : ''}`} aria-hidden="true" />}
           </button>
