@@ -131,7 +131,8 @@ export const api = {
   settings: async () => (await request('/api/settings')).json() as Promise<FolderSettings>,
   saveSettings: async (patch: Partial<FolderSettings>) => (await request('/api/settings', patch)).json() as Promise<FolderSettings>,
   /** Thông báo khi Claude xong việc / hỏi lại / cần cho phép (chỉ app desktop hỗ trợ). */
-  notifications: async () => (await request('/api/notifications')).json() as Promise<{ supported: boolean; enabled: boolean }>,
+  notifications: async () =>
+    (await request('/api/notifications')).json() as Promise<{ supported: boolean; enabled: boolean; error?: string; fallback?: boolean }>,
   setNotifications: async (enabled: boolean) =>
     (await request('/api/notifications', { enabled })).json() as Promise<{ supported: boolean; enabled: boolean }>,
   searchContent: async (q: string) =>

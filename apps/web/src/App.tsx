@@ -209,7 +209,7 @@ function Workbench() {
     setWhatsNew(null);
   };
   const [settingsMenu, setSettingsMenu] = useState<{ x: number; y: number } | null>(null);
-  const [notifications, setNotifications] = useState<{ supported: boolean; enabled: boolean } | null>(null);
+  const [notifications, setNotifications] = useState<{ supported: boolean; enabled: boolean; error?: string; fallback?: boolean } | null>(null);
   const [autoSave, setAutoSave] = useState<boolean | null>(null);
   const [account, setAccount] = useState<AuthStatus | null>(null);
   // Đọc lúc mở app và mỗi lần mở menu: cài đặt dùng chung với các cửa sổ khác.
@@ -449,7 +449,9 @@ function Workbench() {
                     hint:
                       !IS_DESKTOP && notifications.enabled && typeof Notification !== 'undefined' && Notification.permission === 'denied'
                         ? 'Trình duyệt đang chặn'
-                        : undefined,
+                        : notifications.enabled && notifications.fallback
+                          ? 'Dự phòng'
+                          : undefined,
                     onClick: () => void toggleNotifications(),
                   },
                 ]

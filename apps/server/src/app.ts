@@ -101,6 +101,8 @@ export async function buildApp(
       enabled(): boolean;
       setEnabled(on: boolean): void;
       notify(n: AppNotification): void;
+      /** Lỗi gần nhất khi hiện thông báo; có đang dùng thông báo dự phòng (macOS chưa ký) không. */
+      status?(): { error?: string; fallback?: boolean };
     };
   } = {},
 ) {
@@ -694,7 +696,7 @@ export async function buildApp(
   app.get('/api/update', async (_req, reply) => (updater ? updater.status() : reply.code(404).send({ error: 'Chỉ app desktop mới cập nhật được' })));
   app.post('/api/update/check', async (_req, reply) => (updater ? updater.check() : reply.code(404).send({ error: 'Chỉ app desktop mới cập nhật được' })));
   /** Bật/tắt thông báo (cài đặt chung cho mọi cửa sổ). */
-  app.get('/api/notifications', async () => ({ supported: true, enabled: notifier.enabled() }));
+  app.get('/api/notifications', async () => ({ supported: true, enabled: notifier.enabled(), ...('status' in notifier ? notifier.status?.() : {}) }));
   app.post<{ Body: { enabled: boolean } }>(
     '/api/notifications',
     { schema: { body: { type: 'object', required: ['enabled'], properties: { enabled: { type: 'boolean' } } } } },
