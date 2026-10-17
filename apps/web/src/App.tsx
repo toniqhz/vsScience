@@ -25,14 +25,27 @@ import { SearchView } from './sidebar/SearchView';
 import { SessionsView } from './sidebar/SessionsView';
 import { WorkbenchContext, type SnapshotRef } from './workbenchContext';
 
-function findNode(node: TreeNode | undefined, id: string): TreeNode | undefined {
+function findNodeBy(node: TreeNode | undefined, match: (id: string) => boolean): TreeNode | undefined {
   if (!node) return undefined;
-  if (node.id === id) return node;
+  if (match(node.id)) return node;
   for (const c of node.children ?? []) {
-    const hit = findNode(c, id);
+    const hit = findNodeBy(c, match);
     if (hit) return hit;
   }
   return undefined;
+}
+
+/**
+ * Tìm file/thư mục theo đường dẫn tương đối. So ở dạng Unicode dựng sẵn (NFC): trên Mac tên file tiếng Việt
+ * thường ở dạng tách dấu (NFD) còn link Claude viết ở dạng NFC — trông giống hệt nhưng so từng ký tự thì khác.
+ * Không thấy thì so không phân biệt hoa thường (ổ đĩa Mac/Windows mặc định không phân biệt).
+ */
+function findNode(node: TreeNode | undefined, id: string): TreeNode | undefined {
+  const want = id.normalize('NFC');
+  return (
+    findNodeBy(node, (x) => x === id || x.normalize('NFC') === want) ??
+    findNodeBy(node, (x) => x.normalize('NFC').toLowerCase() === want.toLowerCase())
+  );
 }
 
 function countFiles(node: TreeNode | undefined): number {
@@ -284,7 +297,7 @@ function Workbench() {
   /** Mở file theo đường dẫn tương đối (từ thẻ thay đổi file, mục Thay đổi…). */
   const openPath = useCallback(
     (path: string, find?: Omit<FindTarget, 'nonce'>) => {
-      const node = findNode(tree?.root, path) ?? findNode(tree?.root, path.normalize('NFC'));
+      const node = findNode(tree?.root, path);
       if (node?.type === 'file') openFile(node, find);
     },
     [tree, openFile],
