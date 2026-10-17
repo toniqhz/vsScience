@@ -474,7 +474,16 @@ export class AgentSession {
   #remoteOn = false;
   #messages = new Map<string, MessageState>();
   #streamingMessageId: string | null = null;
-  #pending = new Map<string, { resolve: (r: PermissionResult) => void; input: Record<string, unknown>; suggestions?: PermissionUpdate[] }>();
+  #pending = new Map<
+    string,
+    {
+      resolve: (r: PermissionResult) => void;
+      input: Record<string, unknown>;
+      suggestions?: PermissionUpdate[];
+      /** Xét lại khi người dùng đổi chế độ giữa chừng: kết quả theo chế độ mới, hoặc null nếu vẫn phải hỏi. */
+      recheck?: (mode: AgentMode) => PermissionResult | null;
+    }
+  >();
   #stderr: string[] = [];
   /** Người dùng vừa bấm dừng: kết quả lỗi của lượt này là do dừng, không phải lỗi thật. */
   #interrupted = false;
@@ -558,6 +567,24 @@ export class AgentSession {
       if (this.#applied.model !== settings.model) await this.#query.setModel(settings.model);
       if (this.#applied.mode !== settings.mode) await this.#query.setPermissionMode(MODE_TO_PERMISSION[settings.mode]);
       this.#applied = settings;
+    }
+  }
+
+  /**
+   * Đổi chế độ cấp quyền ngay, kể cả khi Claude đang làm dở: báo Claude Code chế độ mới cho các bước sau,
+   * và xét lại các yêu cầu cho phép đang chờ theo chế độ mới (ví dụ sang Tự động thì việc trong thư mục được cho phép luôn).
+   * Chưa có phiên thì thôi — lần nhắn sau dùng chế độ mới.
+   */
+  async setMode(mode: AgentMode) {
+    if (!this.#applied || this.#applied.mode === mode) return;
+    this.#applied = { ...this.#applied, mode };
+    if (this.#query) await this.#query.setPermissionMode(MODE_TO_PERMISSION[mode]).catch(() => {});
+    for (const [id, p] of [...this.#pending]) {
+      const r = p.recheck?.(mode);
+      if (!r) continue;
+      this.#pending.delete(id);
+      p.resolve(r);
+      this.#emit({ kind: 'permission-resolved', id, allowed: r.behavior === 'allow' });
     }
   }
 
@@ -884,7 +911,17 @@ export class AgentSession {
           return;
         }
         const id = randomUUID();
-        this.#pending.set(id, { resolve, input: toolInput, suggestions });
+        // Đổi chế độ trong lúc chờ: Tự động cho phép việc chỉ trong thư mục (trừ duyệt kế hoạch); Lười biếng cho
+        // phép trừ việc luôn bị chặn; Hỏi trước / Lập kế hoạch thì vẫn chờ người dùng.
+        const recheck = (mode: AgentMode): PermissionResult | null => {
+          if (mode === 'lazy') {
+            const blocked = lazyBlockReason(toolName, toolInput, outside);
+            return blocked ? { behavior: 'deny', message: lazyDenyMessage(blocked) } : { behavior: 'allow', updatedInput: toolInput };
+          }
+          if (mode === 'auto' && outside.length === 0 && toolName !== 'ExitPlanMode') return { behavior: 'allow', updatedInput: toolInput };
+          return null;
+        };
+        this.#pending.set(id, { resolve, input: toolInput, suggestions, recheck });
         signal.addEventListener('abort', () => {
           if (this.#pending.delete(id)) {
             resolve({ behavior: 'deny', message: 'Đã dừng.' });

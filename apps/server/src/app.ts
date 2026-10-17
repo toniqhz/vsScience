@@ -467,6 +467,15 @@ export async function buildApp(
       return { ok: true };
     },
   );
+  /** Đổi chế độ cấp quyền ngay (kể cả khi Claude đang làm dở). */
+  app.post<{ Body: { mode: 'ask' | 'auto' | 'plan' | 'lazy' } }>(
+    '/api/agent/mode',
+    { schema: { body: { type: 'object', required: ['mode'], properties: { mode: { type: 'string', enum: ['ask', 'auto', 'plan', 'lazy'] } } } } },
+    async (req) => {
+      await agent.setMode(req.body.mode);
+      return { ok: true };
+    },
+  );
   /** Bật/tắt Remote Control (điều khiển phiên từ claude.ai/code hoặc app Claude trên điện thoại). */
   app.post<{ Body: { model: string; effort: string | null; mode: 'ask' | 'auto' | 'plan' | 'lazy'; remote: boolean } }>(
     '/api/agent/remote',

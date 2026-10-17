@@ -609,3 +609,51 @@ describe('Remote Control', () => {
     finish();
   });
 });
+
+describe('đổi chế độ giữa chừng', () => {
+  const edit = (options: Options, file: string) =>
+    options.canUseTool!('Write', { file_path: file, content: 'x' }, { signal: new AbortController().signal, suggestions: [] } as never);
+
+  it('đang Hỏi trước mà chuyển sang Tự động: yêu cầu sửa file trong thư mục đang chờ được cho phép luôn; ngoài thư mục vẫn chờ', async () => {
+    const decisions: Record<string, unknown> = {};
+    const { session, events, fake } = setup(async function* (_user, options) {
+      const inside = edit(options, `${CWD}/De thi.md`).then((d) => (decisions.inside = d));
+      const outside = edit(options, '/home/ai-do/Desktop/ghi.md').then((d) => (decisions.outside = d));
+      await Promise.race([Promise.all([inside, outside]), new Promise((r) => setTimeout(r, 300))]);
+      yield m({ type: 'result', subtype: 'success', is_error: false, duration_ms: 1 });
+    });
+    await session.send('Sửa đề', [], { ...SETTINGS, mode: 'ask' });
+    await until(() => events.filter((e) => e.kind === 'permission').length === 2);
+    await session.setMode('auto');
+    expect(fake.created[0]!.modes).toEqual(['acceptEdits']);
+    await until(() => 'inside' in decisions);
+    expect(decisions.inside).toMatchObject({ behavior: 'allow' });
+    expect('outside' in decisions).toBe(false);
+    const resolved = events.filter((e) => e.kind === 'permission-resolved');
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]).toMatchObject({ allowed: true });
+    // Ngoài thư mục vẫn chờ người dùng bấm.
+    const pendingOutside = events.filter((e) => e.kind === 'permission').at(-1);
+    expect(session.respondPermission(pendingOutside!.kind === 'permission' ? pendingOutside!.id : '', false)).toBe(true);
+    await until(() => !session.running);
+  });
+
+  it('đang Tự động mà chuyển về Hỏi trước: các bước sau bắt đầu hỏi', async () => {
+    let allowStep: () => void = () => {};
+    const decisions: unknown[] = [];
+    const { session, events } = setup(async function* (_user, options) {
+      decisions.push(await edit(options, `${CWD}/a.md`));
+      await new Promise<void>((r) => (allowStep = r));
+      edit(options, `${CWD}/b.md`).then((d) => decisions.push(d));
+      await new Promise((r) => setTimeout(r, 50));
+      yield m({ type: 'result', subtype: 'success', is_error: false, duration_ms: 1 });
+    });
+    await session.send('Sửa hai file', [], { ...SETTINGS, mode: 'auto' });
+    await until(() => decisions.length === 1);
+    expect(decisions[0]).toMatchObject({ behavior: 'allow' });
+    await session.setMode('ask');
+    allowStep();
+    await until(() => events.some((e) => e.kind === 'permission'));
+    expect(events.filter((e) => e.kind === 'permission')).toHaveLength(1);
+  });
+});

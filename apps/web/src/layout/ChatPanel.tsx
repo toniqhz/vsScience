@@ -498,7 +498,11 @@ export function ChatPanel({ activePath, onOpenFile }: { activePath: string | nul
             }));
           }}
           onEffortChange={(effort) => setPrefs((p) => ({ ...p, effort }))}
-          onModeChange={(mode) => setPrefs((p) => ({ ...p, mode }))}
+          onModeChange={(mode) => {
+            setPrefs((p) => ({ ...p, mode }));
+            // Có hiệu lực ngay, kể cả khi Claude đang làm dở (yêu cầu cho phép đang chờ được xét lại theo chế độ mới).
+            void api.agentMode(mode).catch(() => {});
+          }}
           onRequireLogin={() => setLoginOpen(true)}
           onCommand={runCommand}
           onUnknownCommand={(name) =>
